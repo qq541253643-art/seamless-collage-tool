@@ -1,10 +1,10 @@
 param(
-  [string]$SourceBase = 'https://raw.githubusercontent.com/qq541253643-art/seamless-collage-tool/main',
+  [string]$Repository = 'qq541253643-art/seamless-collage-tool',
+  [string]$Branch = 'main',
   [switch]$NoOpen
 )
 
 $ErrorActionPreference = 'Stop'
-$SourceBase = $SourceBase.TrimEnd('/')
 $installDir = $PSScriptRoot
 $statusPath = Join-Path $installDir 'update-status.txt'
 $tempDir = Join-Path ([IO.Path]::GetTempPath()) ('seamless-collage-update-' + [Guid]::NewGuid().ToString('N'))
@@ -12,7 +12,12 @@ $cacheBuster = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 function Get-RemoteFile([string]$Name, [string]$Destination) {
   $encodedName = [Uri]::EscapeDataString($Name)
-  Invoke-WebRequest -UseBasicParsing -Uri "$SourceBase/$encodedName?t=$cacheBuster" -OutFile $Destination
+  $encodedBranch = [Uri]::EscapeDataString($Branch)
+  $uri = "https://api.github.com/repos/$Repository/contents/$encodedName`?ref=$encodedBranch&t=$cacheBuster"
+  $response = Invoke-RestMethod -UseBasicParsing -Headers @{ 'User-Agent' = 'Seamless-Collage-Updater' } -Uri $uri
+  if ([string]::IsNullOrWhiteSpace([string]$response.content)) { throw "GitHub returned no content for: $Name" }
+  $bytes = [Convert]::FromBase64String(([string]$response.content -replace '\s', ''))
+  [IO.File]::WriteAllBytes($Destination, $bytes)
 }
 
 try {

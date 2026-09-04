@@ -1,19 +1,24 @@
 param(
   [string]$InstallDir = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) (-join [char[]](0x65E0, 0x7F1D, 0x62FC, 0x56FE, 0x5DE5, 0x5177))),
   [string]$DesktopDir = [Environment]::GetFolderPath('Desktop'),
-  [string]$SourceBase = 'https://raw.githubusercontent.com/qq541253643-art/seamless-collage-tool/main',
+  [string]$Repository = 'qq541253643-art/seamless-collage-tool',
+  [string]$Branch = 'main',
   [switch]$NoOpen
 )
 
 $ErrorActionPreference = 'Stop'
-$SourceBase = $SourceBase.TrimEnd('/')
 $cacheBuster = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $tempDir = Join-Path ([IO.Path]::GetTempPath()) ('seamless-collage-' + [Guid]::NewGuid().ToString('N'))
 $appName = -join [char[]](0x65E0, 0x7F1D, 0x62FC, 0x56FE, 0x5DE5, 0x5177)
 
 function Get-RemoteFile([string]$Name, [string]$Destination) {
   $encodedName = [Uri]::EscapeDataString($Name)
-  Invoke-WebRequest -UseBasicParsing -Uri "$SourceBase/$encodedName?t=$cacheBuster" -OutFile $Destination
+  $encodedBranch = [Uri]::EscapeDataString($Branch)
+  $uri = "https://api.github.com/repos/$Repository/contents/$encodedName`?ref=$encodedBranch&t=$cacheBuster"
+  $response = Invoke-RestMethod -UseBasicParsing -Headers @{ 'User-Agent' = 'Seamless-Collage-Installer' } -Uri $uri
+  if ([string]::IsNullOrWhiteSpace([string]$response.content)) { throw "GitHub returned no content for: $Name" }
+  $bytes = [Convert]::FromBase64String(([string]$response.content -replace '\s', ''))
+  [IO.File]::WriteAllBytes($Destination, $bytes)
 }
 
 try {
