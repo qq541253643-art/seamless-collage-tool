@@ -1,7 +1,8 @@
 param(
   [string]$InstallDir = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) '无缝拼图工具'),
   [string]$DesktopDir = [Environment]::GetFolderPath('Desktop'),
-  [string]$SourceBase = 'https://raw.githubusercontent.com/qq541253643-art/seamless-collage-tool/main'
+  [string]$SourceBase = 'https://raw.githubusercontent.com/qq541253643-art/seamless-collage-tool/main',
+  [switch]$NoOpen
 )
 
 $ErrorActionPreference = 'Stop'
@@ -48,7 +49,7 @@ try {
 
   Write-Host "安装完成：$InstallDir" -ForegroundColor Green
   Write-Host "桌面快捷方式：$(Join-Path $DesktopDir '无缝拼图工具.lnk')"
-  Start-Process (Join-Path $InstallDir 'app.html')
+  if (-not $NoOpen) { Start-Process (Join-Path $InstallDir 'app.html') }
 }
 catch {
   Write-Error "安装失败：$($_.Exception.Message)"
