@@ -1,0 +1,1747 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>无缝拼图工具</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #151a17;
+      --panel: #202722;
+      --panel-2: #29312b;
+      --line: #3c483f;
+      --text: #eef5f0;
+      --muted: #9eafa4;
+      --green: #32b66a;
+      --green-2: #249454;
+      --danger: #df6b6b;
+      --shadow: 0 16px 48px rgb(0 0 0 / .28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+
+    .app { display: grid; grid-template-rows: 58px minmax(0, 1fr) 62px; height: 100%; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: #1b211d;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 205px; font-size: 18px; font-weight: 700; }
+    .brand-mark { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; background: var(--green); color: #07150d; }
+    .size-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .size-tools label { color: var(--muted); }
+    .size-input {
+      width: 82px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      outline: none;
+      background: var(--panel-2);
+      color: var(--text);
+    }
+    .size-input:focus { border-color: var(--green); }
+    .times { color: var(--muted); }
+    .privacy { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+    .workspace { display: grid; grid-template-columns: 250px minmax(360px, 1fr) 300px; min-height: 0; }
+    .panel { min-height: 0; overflow: auto; background: var(--panel); }
+    .left-panel { padding: 18px; border-right: 1px solid var(--line); }
+    .right-panel { padding: 18px; border-left: 1px solid var(--line); }
+    .panel-title { margin: 0 0 12px; font-size: 15px; }
+
+    .upload-button, .primary, .secondary, .tool-button, .count-button, .template-button {
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background .15s, border-color .15s, transform .08s;
+    }
+    button:active { transform: translateY(1px); }
+    button:focus-visible, input:focus-visible { outline: 2px solid #7be7a5; outline-offset: 2px; }
+    button:disabled { cursor: not-allowed; opacity: .42; }
+    .upload-button, .primary { background: var(--green); color: #06130b; font-weight: 700; }
+    .upload-button:hover, .primary:hover { background: #43ca79; }
+    .upload-button { display: grid; place-items: center; min-height: 96px; width: 100%; font-size: 17px; }
+    .secondary, .tool-button { border: 1px solid var(--line); background: var(--panel-2); }
+    .secondary:hover, .tool-button:hover { border-color: #617064; background: #343e36; }
+    .danger { color: #ffb0b0; }
+
+    .drop-tip { margin: 9px 0 16px; color: var(--muted); font-size: 12px; text-align: center; }
+    .image-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .thumb {
+      position: relative;
+      aspect-ratio: 1;
+      overflow: hidden;
+      border: 2px solid transparent;
+      border-radius: 7px;
+      background: #111511;
+      cursor: grab;
+    }
+    .thumb:hover { border-color: var(--green); }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+    .thumb-index { position: absolute; right: 4px; bottom: 4px; min-width: 20px; padding: 1px 5px; border-radius: 10px; background: rgb(0 0 0 / .7); font-size: 11px; text-align: center; }
+    .empty-list { grid-column: 1 / -1; padding: 24px 8px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); text-align: center; }
+    .left-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+    .left-actions button { padding: 9px 8px; }
+
+    .stage {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      padding: 24px;
+      background-color: #121613;
+      background-image:
+        linear-gradient(45deg, #1a201b 25%, transparent 25%),
+        linear-gradient(-45deg, #1a201b 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #1a201b 75%),
+        linear-gradient(-45deg, transparent 75%, #1a201b 75%);
+      background-size: 22px 22px;
+      background-position: 0 0, 0 11px, 11px -11px, -11px 0;
+    }
+    .canvas-shell { display: grid; place-items: center; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+    #canvas {
+      display: block;
+      max-width: none;
+      max-height: none;
+      width: auto;
+      height: auto;
+      background: transparent;
+      box-shadow: var(--shadow);
+      cursor: grab;
+      touch-action: none;
+    }
+    #canvas.dragging { cursor: grabbing; }
+    .stage.panning, .stage.panning #canvas { cursor: grabbing !important; }
+    .view-controls {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: rgb(27 33 29 / .92);
+      box-shadow: 0 8px 24px rgb(0 0 0 / .24);
+    }
+    .view-controls button { min-width: 34px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); cursor: pointer; }
+    .view-percent { min-width: 46px; color: var(--muted); font-size: 12px; text-align: center; }
+    .view-fit { color: #aef0c6; }
+    .stage.drag-over::after {
+      content: "松开鼠标添加图片";
+      position: absolute;
+      inset: 20px;
+      display: grid;
+      place-items: center;
+      border: 2px dashed #69df96;
+      border-radius: 14px;
+      background: rgb(25 88 49 / .72);
+      color: white;
+      font-size: 20px;
+      font-weight: 700;
+      pointer-events: none;
+    }
+
+    .count-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 14px; }
+    .count-button { padding: 8px 0; border: 1px solid var(--line); background: var(--panel-2); }
+    .count-button.active { border-color: var(--green); background: #194d2d; color: #aef0c6; }
+    .layout-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 16px; }
+    .layout-tab { padding: 9px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); cursor: pointer; }
+    .layout-tab.active { border-color: var(--green); background: #194d2d; color: #aef0c6; }
+    .template-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .template-button { padding: 7px; border: 2px solid transparent; background: #171c18; }
+    .template-button:hover { border-color: #66746a; }
+    .template-button.active { border-color: var(--green); background: #183d27; }
+    .template-button canvas { display: block; width: 100%; height: auto; border-radius: 4px; background: #303732; pointer-events: none; }
+    .template-name { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; text-align: center; }
+    .custom-panel[hidden], .template-panel[hidden] { display: none; }
+    .custom-tip { margin: 0 0 13px; color: var(--muted); font-size: 12px; }
+    .custom-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .custom-actions button { padding: 10px 7px; }
+    .custom-actions .wide { grid-column: 1 / -1; }
+    .custom-count { margin: 14px 0 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #171c18; color: var(--muted); text-align: center; }
+    .gap-settings { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+    .setting-head, .color-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .setting-head { margin-bottom: 9px; }
+    .setting-label { color: var(--muted); }
+    .gap-value { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+    .gap-number { width: 64px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); color: var(--text); text-align: right; }
+    #gapRange { width: 100%; accent-color: var(--green); }
+    .color-row { margin-top: 13px; }
+    .color-input { width: 58px; height: 32px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); cursor: pointer; }
+    .sticker-settings { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+    .sticker-tip { margin: -5px 0 10px; color: var(--muted); font-size: 12px; }
+    .sticker-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+    .sticker-button { min-width: 0; padding: 8px 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); cursor: pointer; }
+    .sticker-button:hover { border-color: var(--green); }
+    .sticker-icon { display: block; font-size: 22px; line-height: 1; }
+    .sticker-name { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; }
+    .sticker-controls { margin-top: 13px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: #171c18; }
+    .sticker-controls .setting-head { margin-bottom: 6px; }
+    .sticker-controls input[type="range"] { width: 100%; accent-color: var(--green); }
+    .sticker-control-row { margin-top: 10px; }
+    .sticker-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 12px; }
+    .sticker-actions button { padding: 8px 5px; }
+    .sticker-actions .wide { grid-column: 1 / -1; }
+
+    .bottombar {
+      display: grid;
+      grid-template-columns: 250px minmax(360px, 1fr) 300px;
+      align-items: center;
+      border-top: 1px solid var(--line);
+      background: #1b211d;
+    }
+    .status { padding: 0 18px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+    .status.error { color: #ffaaaa; }
+    .edit-tools { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 10px; }
+    .tool-button { min-width: 40px; padding: 9px 11px; }
+    .zoom-wrap { display: flex; align-items: center; gap: 7px; min-width: 165px; color: var(--muted); }
+    #zoom { width: 110px; accent-color: var(--green); }
+    .export-tools { display: grid; grid-template-columns: 1fr; gap: 8px; padding: 0 18px; }
+    .export-tools button { padding: 10px 8px; }
+    .export-tools .secondary { font-weight: 700; }
+
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+    @media (max-width: 980px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100%; grid-template-rows: auto auto auto; }
+      .topbar { flex-wrap: wrap; padding: 12px; }
+      .brand { min-width: 0; }
+      .size-tools { margin-left: 0; }
+      .privacy { width: 100%; }
+      .workspace { grid-template-columns: 190px minmax(320px, 1fr); grid-template-rows: minmax(520px, 70vh) auto; }
+      .right-panel { grid-column: 1 / -1; border-top: 1px solid var(--line); border-left: 0; }
+      .template-grid { grid-template-columns: repeat(4, 1fr); }
+      .bottombar { grid-template-columns: 190px 1fr; min-height: 112px; }
+      .export-tools { grid-column: 1 / -1; padding-bottom: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">▦</span><span>无缝拼图工具</span></div>
+      <div class="size-tools">
+        <label for="canvasWidth">画布</label>
+        <input id="canvasWidth" class="size-input" type="number" min="64" max="4096" value="1080" aria-label="画布宽度">
+        <span class="times">×</span>
+        <input id="canvasHeight" class="size-input" type="number" min="64" max="4096" value="1080" aria-label="画布高度">
+        <select id="sizePreset" class="size-input" style="width:122px" aria-label="常用画布尺寸">
+          <option value="" hidden>自定义尺寸</option>
+          <option value="1080x1080">正方形</option>
+          <option value="1080x1920">竖屏 9:16</option>
+          <option value="1920x1080">横屏 16:9</option>
+          <option value="1080x1440">竖图 3:4</option>
+          <option value="1440x1080">横图 4:3</option>
+        </select>
+      </div>
+      <div class="privacy">离线运行 · 图片只在本机处理</div>
+    </header>
+
+    <section class="workspace">
+      <aside class="panel left-panel" aria-label="图片管理">
+        <h2 class="panel-title">图片</h2>
+        <label class="upload-button" for="fileInput">＋ 添加多张图片</label>
+        <input id="fileInput" class="sr-only" type="file" accept="image/*" multiple>
+        <p class="drop-tip">也可以把图片拖到中间画布</p>
+        <div id="imageList" class="image-list"></div>
+        <div class="left-actions">
+          <button id="shuffleButton" class="secondary" type="button">随机换位</button>
+          <button id="clearButton" class="secondary danger" type="button">清空图片</button>
+        </div>
+      </aside>
+
+      <section id="stage" class="stage" aria-label="拼图画布">
+        <div class="canvas-shell"><canvas id="canvas" width="1080" height="1080"></canvas></div>
+        <div class="view-controls" aria-label="画布视图">
+          <button id="viewOutButton" type="button" title="缩小画布视图">−</button>
+          <span id="viewPercent" class="view-percent">100%</span>
+          <button id="viewInButton" type="button" title="放大画布视图">＋</button>
+          <button id="fitViewButton" class="view-fit" type="button" title="显示完整画布">适应</button>
+        </div>
+      </section>
+
+      <aside class="panel right-panel" aria-label="布局与贴图工具">
+        <h2 class="panel-title">模板</h2>
+        <div class="layout-tabs">
+          <button id="templateModeButton" class="layout-tab active" type="button">模板拼图</button>
+          <button id="customModeButton" class="layout-tab" type="button">自定义布局</button>
+        </div>
+        <div id="templatePanel" class="template-panel">
+          <div id="countRow" class="count-row" aria-label="图片数量"></div>
+          <div id="templateGrid" class="template-grid"></div>
+        </div>
+        <div id="customPanel" class="custom-panel" hidden>
+          <p class="custom-tip">进入时按已导入图片数生成格子。选中格子后可继续分割；横竖绿色线可拖动。</p>
+          <div class="custom-actions">
+            <button id="autoCustomButton" class="secondary wide" type="button">按图片数自动排版</button>
+            <button id="splitVerticalButton" class="secondary" type="button">左右分割 ＋1格</button>
+            <button id="splitHorizontalButton" class="secondary" type="button">上下分割 ＋1格</button>
+            <button id="splitDiagonalButton" class="secondary" type="button">斜线分割 ＋1格</button>
+            <button id="splitYButton" class="secondary" type="button">Y 型分割 ＋2格</button>
+            <button id="resetCustomButton" class="secondary danger wide" type="button">重置为单格</button>
+          </div>
+          <p id="customCount" class="custom-count">当前 1 格 · 最多 9 格</p>
+        </div>
+        <section class="gap-settings" aria-label="拼图间距设置">
+          <div class="setting-head">
+            <label class="setting-label" for="gapRange">图片间距</label>
+            <span class="gap-value"><input id="gapNumber" class="gap-number" type="number" min="0" max="100" value="0" aria-label="图片间距像素">px</span>
+          </div>
+          <input id="gapRange" type="range" min="0" max="100" step="1" value="0" aria-label="图片间距">
+          <div class="color-row">
+            <label class="setting-label" for="gapColor">间距与露底颜色</label>
+            <input id="gapColor" class="color-input" type="color" value="#ffffff" aria-label="间距与露底颜色">
+          </div>
+        </section>
+        <section class="sticker-settings" aria-label="贴图工具">
+          <h2 class="panel-title">贴图</h2>
+          <p class="sticker-tip">点击添加；在画布上拖动位置。</p>
+          <div class="sticker-grid">
+            <button class="sticker-button" type="button" data-sticker="arrow" aria-label="添加粗箭头"><span class="sticker-icon">➜</span><span class="sticker-name">粗箭头</span></button>
+            <button class="sticker-button" type="button" data-sticker="curve" aria-label="添加弯箭头"><span class="sticker-icon">⤴</span><span class="sticker-name">弯箭头</span></button>
+            <button class="sticker-button" type="button" data-sticker="circle" aria-label="添加圆圈"><span class="sticker-icon">○</span><span class="sticker-name">圆圈</span></button>
+            <button class="sticker-button" type="button" data-sticker="rect" aria-label="添加方框"><span class="sticker-icon">□</span><span class="sticker-name">方框</span></button>
+            <button class="sticker-button" type="button" data-sticker="line" aria-label="添加直线"><span class="sticker-icon">━</span><span class="sticker-name">直线</span></button>
+            <button class="sticker-button" type="button" data-sticker="check" aria-label="添加对勾"><span class="sticker-icon">✓</span><span class="sticker-name">对勾</span></button>
+            <button class="sticker-button" type="button" data-sticker="cross" aria-label="添加叉号"><span class="sticker-icon">✕</span><span class="sticker-name">叉号</span></button>
+            <button class="sticker-button" type="button" data-sticker="bang" aria-label="添加感叹号"><span class="sticker-icon">!</span><span class="sticker-name">感叹号</span></button>
+          </div>
+          <div id="stickerControls" class="sticker-controls">
+            <div class="color-row" style="margin-top:0">
+              <label class="setting-label" for="stickerColor">颜色</label>
+              <input id="stickerColor" class="color-input" type="color" value="#ff2525" aria-label="贴图颜色">
+            </div>
+            <div class="sticker-control-row">
+              <div class="setting-head"><label class="setting-label" for="stickerSizeRange">大小</label><span id="stickerSizeValue" class="gap-value">25%</span></div>
+              <input id="stickerSizeRange" type="range" min="5" max="80" value="25" aria-label="贴图大小">
+            </div>
+            <div class="sticker-control-row">
+              <div class="setting-head"><label class="setting-label" for="stickerRotationRange">旋转</label><span id="stickerRotationValue" class="gap-value">0°</span></div>
+              <input id="stickerRotationRange" type="range" min="-180" max="180" value="0" aria-label="贴图旋转角度">
+            </div>
+            <div class="sticker-control-row">
+              <div class="setting-head"><label class="setting-label" for="stickerStrokeRange">粗细</label><span id="stickerStrokeValue" class="gap-value">12px</span></div>
+              <input id="stickerStrokeRange" type="range" min="2" max="40" value="12" aria-label="贴图线条粗细">
+            </div>
+            <div class="sticker-actions">
+              <button id="duplicateStickerButton" class="secondary" type="button">复制</button>
+              <button id="deleteStickerButton" class="secondary danger" type="button">删除</button>
+              <button id="clearStickersButton" class="secondary danger wide" type="button">清空贴图</button>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </section>
+
+    <footer class="bottombar">
+      <div id="status" class="status" role="status" aria-live="polite">添加图片后选择模板</div>
+      <div class="edit-tools" aria-label="图片操作">
+        <button id="undoButton" class="tool-button" type="button" title="撤销（Ctrl+Z）">↶</button>
+        <button id="redoButton" class="tool-button" type="button" title="重做（Ctrl+Y）">↷</button>
+        <button id="rotateLeftButton" class="tool-button" type="button" title="向左旋转">↺</button>
+        <button id="rotateRightButton" class="tool-button" type="button" title="向右旋转">↻</button>
+        <button id="flipXButton" class="tool-button" type="button" title="水平翻转">↔</button>
+        <button id="flipYButton" class="tool-button" type="button" title="垂直翻转">↕</button>
+        <button id="removeButton" class="tool-button danger" type="button" title="移出当前格">⌫</button>
+        <label class="zoom-wrap" for="zoom"><span>缩放</span><input id="zoom" type="range" min="0.1" max="3" step="0.01" value="1"><span id="zoomValue">100%</span></label>
+      </div>
+      <div class="export-tools">
+        <button id="jpgButton" class="primary" type="button">导出 JPG</button>
+      </div>
+    </footer>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const R = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
+      const P = coords => {
+        const points = coords.map(([x, y]) => ({ x, y }));
+        const xs = points.map(point => point.x);
+        const ys = points.map(point => point.y);
+        return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys), points };
+      };
+      const makeTornTemplate = () => {
+        const edge = Array.from({ length: 43 }, (_, index) => {
+          const y = index / 42;
+          const fade = Math.sin(Math.PI * y);
+          const x = .5 + fade * (
+            .017 * Math.sin(index * 2.41) +
+            .008 * Math.sin(index * 5.27) +
+            .004 * Math.cos(index * 9.73)
+          );
+          return [x, y];
+        });
+        return {
+          name: "撕纸分界",
+          cells: [
+            P([[0, 0], ...edge, [0, 1]]),
+            P([edge[0], [1, 0], [1, 1], ...edge.slice().reverse().slice(0, -1)])
+          ],
+          seams: [{ points: edge, color: "#f6f3eb", shadow: "rgba(20,20,20,.45)", width: 4 }]
+        };
+      };
+      const TEMPLATES = {
+        2: [
+          { name: "左右", cells: [R(0,0,.5,1), R(.5,0,1,1)] },
+          { name: "上下", cells: [R(0,0,1,.5), R(0,.5,1,1)] },
+          { name: "斜线 ↘", cells: [P([[0,0],[1,0],[0,1]]), P([[1,0],[1,1],[0,1]])] },
+          { name: "斜线 ↗", cells: [P([[0,0],[1,0],[1,1]]), P([[0,0],[1,1],[0,1]])] },
+          { name: "斜切", cells: [P([[0,0],[.54,0],[.46,1],[0,1]]), P([[.54,0],[1,0],[1,1],[.46,1]])] },
+          makeTornTemplate(),
+          { name: "矩形画中画", overlap: true, cells: [R(0,0,1,1), { ...R(.56,.12,.94,.82), borderColor: "#ef3838", borderWidth: 8 }] },
+          { name: "圆形画中画", overlap: true, cells: [R(0,0,1,1), { ...R(.54,.2,.94,.8), shape: "ellipse", borderColor: "#ffd43b", borderWidth: 8 }] }
+        ],
+        3: [
+          { name: "左一右二", cells: [R(0,0,.58,1), R(.58,0,1,.5), R(.58,.5,1,1)] },
+          { name: "上二下一", cells: [R(0,0,.5,.5), R(.5,0,1,.5), R(0,.5,1,1)] },
+          { name: "上一下二", cells: [R(0,0,1,.55), R(0,.55,.5,1), R(.5,.55,1,1)] },
+          { name: "三列", cells: [R(0,0,1/3,1), R(1/3,0,2/3,1), R(2/3,0,1,1)] },
+          { name: "Y 型", cells: [P([[0,0],[1,0],[.5,.48]]), P([[0,0],[.5,.48],[.5,1],[0,1]]), P([[1,0],[1,1],[.5,1],[.5,.48]])] }
+        ],
+        4: [
+          { name: "四宫格", cells: [R(0,0,.5,.5), R(.5,0,1,.5), R(0,.5,.5,1), R(.5,.5,1,1)] },
+          { name: "左一右三", cells: [R(0,0,.58,1), R(.58,0,1,1/3), R(.58,1/3,1,2/3), R(.58,2/3,1,1)] },
+          { name: "上一下三", cells: [R(0,0,1,.6), R(0,.6,1/3,1), R(1/3,.6,2/3,1), R(2/3,.6,1,1)] },
+          { name: "焦点叠图", overlap: true, cells: [R(0,0,.5,.43), R(.5,0,1,.43), R(0,.43,1,1), { ...R(.36,.25,.64,.53), borderColor: "#ffffff", borderWidth: 6 }] }
+        ],
+        5: [
+          { name: "左一右四", cells: [R(0,0,.5,1), R(.5,0,.75,.5), R(.75,0,1,.5), R(.5,.5,.75,1), R(.75,.5,1,1)] },
+          { name: "上二下三", cells: [R(0,0,.5,.5), R(.5,0,1,.5), R(0,.5,1/3,1), R(1/3,.5,2/3,1), R(2/3,.5,1,1)] },
+          { name: "中间大图", cells: [R(0,0,.28,.5), R(0,.5,.28,1), R(.28,0,.72,1), R(.72,0,1,.5), R(.72,.5,1,1)] }
+        ],
+        6: [
+          { name: "三列两行", cells: Array.from({length:6}, (_,i) => R((i%3)/3, Math.floor(i/3)/2, (i%3+1)/3, (Math.floor(i/3)+1)/2)) },
+          { name: "两列三行", cells: Array.from({length:6}, (_,i) => R((i%2)/2, Math.floor(i/2)/3, (i%2+1)/2, (Math.floor(i/2)+1)/3)) },
+          { name: "左二右四", cells: [R(0,0,.5,.5), R(0,.5,.5,1), R(.5,0,.75,.5), R(.75,0,1,.5), R(.5,.5,.75,1), R(.75,.5,1,1)] }
+        ],
+        7: [
+          { name: "上四下三", cells: [...Array.from({length:4},(_,i)=>R(i/4,0,(i+1)/4,.48)), ...Array.from({length:3},(_,i)=>R(i/3,.48,(i+1)/3,1))] },
+          { name: "左一右六", cells: [R(0,0,.46,1), ...Array.from({length:6},(_,i)=>R(.46+(i%2)*.27,Math.floor(i/2)/3,.46+(i%2+1)*.27,(Math.floor(i/2)+1)/3))] }
+        ],
+        8: [
+          { name: "四列两行", cells: Array.from({length:8},(_,i)=>R((i%4)/4,Math.floor(i/4)/2,(i%4+1)/4,(Math.floor(i/4)+1)/2)) },
+          { name: "两列四行", cells: Array.from({length:8},(_,i)=>R((i%2)/2,Math.floor(i/2)/4,(i%2+1)/2,(Math.floor(i/2)+1)/4)) },
+          { name: "中间双大图", cells: [R(0,0,.25,1/3),R(0,1/3,.25,2/3),R(0,2/3,.25,1),R(.25,0,.75,.5),R(.25,.5,.75,1),R(.75,0,1,1/3),R(.75,1/3,1,2/3),R(.75,2/3,1,1)] }
+        ],
+        9: [
+          { name: "九宫格", cells: Array.from({length:9},(_,i)=>R((i%3)/3,Math.floor(i/3)/3,(i%3+1)/3,(Math.floor(i/3)+1)/3)) },
+          { name: "中心大图", cells: [R(0,0,.25,.25),R(.25,0,.75,.25),R(.75,0,1,.25),R(0,.25,.25,.75),R(.25,.25,.75,.75),R(.75,.25,1,.75),R(0,.75,.25,1),R(.25,.75,.75,1),R(.75,.75,1,1)] }
+        ]
+      };
+
+      const $ = id => document.getElementById(id);
+      const canvas = $("canvas");
+      const ctx = canvas.getContext("2d", { alpha: true });
+      const stage = $("stage");
+      const savedSize = (() => {
+        try {
+          const value = JSON.parse(localStorage.getItem("puzzle-canvas-size-v1"));
+          return value && value.width >= 64 && value.width <= 4096 && value.height >= 64 && value.height <= 4096 ? value : null;
+        } catch { return null; }
+      })();
+      const state = {
+        width: savedSize?.width || 1080,
+        height: savedSize?.height || 1080,
+        gap: 0,
+        background: "#ffffff",
+        count: 3,
+        templateIndex: 0,
+        customMode: false,
+        customRoot: { type: "leaf", id: 1 },
+        images: [],
+        slots: Array.from({ length: 3 }, () => null),
+        selected: 0,
+        stickers: [],
+        selectedStickerId: null
+      };
+      let nextImageId = 1;
+      let nextLeafId = 2;
+      let nextStickerId = 1;
+      let exportSequence = { date: "", number: 0 };
+      let history = [];
+      let historyIndex = -1;
+      let drag = null;
+      let viewDrag = null;
+      let spaceHeld = false;
+      const view = { zoom: 1, x: 0, y: 0 };
+      let statusTimer = 0;
+
+      const cloneSlots = slots => slots.map(slot => slot ? { ...slot } : null);
+      const cloneStickers = stickers => stickers.map(sticker => ({ ...sticker }));
+      const cloneTree = tree => JSON.parse(JSON.stringify(tree));
+      const snapshot = () => ({ width: state.width, height: state.height, gap: state.gap, background: state.background, count: state.count, templateIndex: state.templateIndex, customMode: state.customMode, customRoot: cloneTree(state.customRoot), slots: cloneSlots(state.slots), selected: state.selected, stickers: cloneStickers(state.stickers), selectedStickerId: state.selectedStickerId });
+      const sameSnapshot = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+      function pushHistory() {
+        const item = snapshot();
+        if (historyIndex >= 0 && sameSnapshot(history[historyIndex], item)) return;
+        history.splice(historyIndex + 1);
+        history.push(item);
+        if (history.length > 60) history.shift();
+        historyIndex = history.length - 1;
+        updateControls();
+      }
+
+      function restore(item) {
+        Object.assign(state, item, { customRoot: cloneTree(item.customRoot), slots: cloneSlots(item.slots), stickers: cloneStickers(item.stickers || []) });
+        saveCanvasSize();
+        syncSizeInputs();
+        syncGapInputs();
+        renderModeControls();
+        renderCountButtons();
+        if (!state.customMode) renderTemplates();
+        render();
+        updateControls();
+      }
+
+      function setStatus(message, error = false) {
+        clearTimeout(statusTimer);
+        const el = $("status");
+        el.textContent = message;
+        el.classList.toggle("error", error);
+        statusTimer = setTimeout(() => {
+          const filled = state.slots.filter(Boolean).length;
+          el.textContent = `${filled}/${state.count} 格已填充 · 当前 ${state.width}×${state.height}`;
+          el.classList.remove("error");
+        }, 3500);
+      }
+
+      const selectedSticker = () => state.stickers.find(sticker => sticker.id === state.selectedStickerId) || null;
+      const selectedSlot = () => state.selectedStickerId == null && state.selected >= 0 ? state.slots[state.selected] : null;
+      const imageById = id => state.images.find(image => image.id === id);
+      const newSlot = imageId => ({ imageId, zoom: 1, offsetX: 0, offsetY: 0, rotation: 0, flipX: false, flipY: false });
+
+      const cellPoints = cell => cell.points || [{ x: cell.x0, y: cell.y0 }, { x: cell.x1, y: cell.y0 }, { x: cell.x1, y: cell.y1 }, { x: cell.x0, y: cell.y1 }];
+      const signedArea = points => points.reduce((sum, point, index) => {
+        const next = points[(index + 1) % points.length];
+        return sum + point.x * next.y - next.x * point.y;
+      }, 0) / 2;
+      const polygonArea = points => Math.abs(signedArea(points));
+      const boundsOf = points => {
+        const xs = points.map(point => point.x);
+        const ys = points.map(point => point.y);
+        return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+      };
+      const isAxisRectangle = points => points.length === 4 && new Set(points.map(point => point.x)).size === 2 && new Set(points.map(point => point.y)).size === 2;
+
+      function clipHalfPlane(points, side) {
+        const result = [];
+        for (let index = 0; index < points.length; index++) {
+          const current = points[index];
+          const next = points[(index + 1) % points.length];
+          const currentSide = side(current);
+          const nextSide = side(next);
+          const currentInside = currentSide >= -1e-10;
+          const nextInside = nextSide >= -1e-10;
+          if (currentInside) result.push(current);
+          if (currentInside !== nextInside) {
+            const ratio = currentSide / (currentSide - nextSide);
+            result.push({ x: current.x + (next.x - current.x) * ratio, y: current.y + (next.y - current.y) * ratio });
+          }
+        }
+        return result;
+      }
+
+      function clipPolygon(subject, clip) {
+        const orientation = signedArea(clip) >= 0 ? 1 : -1;
+        return clip.reduce((result, start, index) => {
+          const end = clip[(index + 1) % clip.length];
+          return clipHalfPlane(result, point => orientation * ((end.x - start.x) * (point.y - start.y) - (end.y - start.y) * (point.x - start.x)));
+        }, subject);
+      }
+
+      function customLayout(root = state.customRoot) {
+        const cells = [];
+        const dividers = [];
+        const walk = (node, polygon, path) => {
+          const bounds = boundsOf(polygon);
+          if (node.type === "leaf") {
+            cells.push({ ...bounds, ...(isAxisRectangle(polygon) ? {} : { points: polygon }), leafId: node.id });
+            return;
+          }
+          if (node.direction === "y") {
+            const center = { x: (bounds.x0 + bounds.x1) / 2, y: bounds.y0 + (bounds.y1 - bounds.y0) * .48 };
+            const topLeft = { x: bounds.x0, y: bounds.y0 };
+            const topRight = { x: bounds.x1, y: bounds.y0 };
+            const bottomLeft = { x: bounds.x0, y: bounds.y1 };
+            const bottomRight = { x: bounds.x1, y: bounds.y1 };
+            const bottomCenter = { x: center.x, y: bounds.y1 };
+            const sectors = [[topLeft, topRight, center], [topLeft, center, bottomCenter, bottomLeft], [center, topRight, bottomRight, bottomCenter]];
+            [[topLeft, center], [topRight, center], [bottomCenter, center]].forEach(points => dividers.push({ path, direction: "y", points, clipPoints: polygon, bounds }));
+            walk(node.first, clipPolygon(polygon, sectors[0]), [...path, "first"]);
+            walk(node.second, clipPolygon(polygon, sectors[1]), [...path, "second"]);
+            walk(node.third, clipPolygon(polygon, sectors[2]), [...path, "third"]);
+            return;
+          }
+          let side;
+          let points;
+          if (node.direction === "vertical") {
+            const x = bounds.x0 + (bounds.x1 - bounds.x0) * node.ratio;
+            side = point => x - point.x;
+            points = [{ x, y: bounds.y0 }, { x, y: bounds.y1 }];
+          } else if (node.direction === "horizontal") {
+            const y = bounds.y0 + (bounds.y1 - bounds.y0) * node.ratio;
+            side = point => y - point.y;
+            points = [{ x: bounds.x0, y }, { x: bounds.x1, y }];
+          } else {
+            const start = { x: bounds.x0, y: bounds.y0 };
+            const end = { x: bounds.x1, y: bounds.y1 };
+            side = point => -((end.x - start.x) * (point.y - start.y) - (end.y - start.y) * (point.x - start.x));
+            points = [start, end];
+          }
+          dividers.push({ path, direction: node.direction, points, clipPoints: polygon, bounds });
+          walk(node.first, clipHalfPlane(polygon, side), [...path, "first"]);
+          walk(node.second, clipHalfPlane(polygon, point => -side(point)), [...path, "second"]);
+        };
+        walk(root, cellPoints(R(0, 0, 1, 1)), []);
+        return { cells, dividers };
+      }
+
+      function nodeAtPath(path) {
+        return path.reduce((node, part) => node[part], state.customRoot);
+      }
+
+      function replaceLeaf(node, leafId, replacement) {
+        if (node.type === "leaf") return node.id === leafId ? replacement : node;
+        ["first", "second", "third"].forEach(key => { if (node[key]) node[key] = replaceLeaf(node[key], leafId, replacement); });
+        return node;
+      }
+
+      function currentTemplate() {
+        return state.customMode ? { name: "自定义布局", cells: customLayout().cells } : TEMPLATES[state.count][state.templateIndex];
+      }
+
+      function pixelCells(width = state.width, height = state.height) {
+        return currentTemplate().cells.map(cell => {
+          const style = { shape: cell.shape || "polygon", borderColor: cell.borderColor || "", borderWidth: (cell.borderWidth || 0) * width / 1080 };
+          if (cell.points) {
+            let points = cell.points.map(point => ({ x: point.x * width, y: point.y * height }));
+            if (state.gap) {
+              const center = points.reduce((sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length }), { x: 0, y: 0 });
+              const inset = Math.min(state.gap / 2, (cell.x1 - cell.x0) * width / 4, (cell.y1 - cell.y0) * height / 4);
+              points = points.map(point => {
+                const distance = Math.hypot(center.x - point.x, center.y - point.y) || 1;
+                return { x: point.x + (center.x - point.x) * inset / distance, y: point.y + (center.y - point.y) * inset / distance };
+              });
+            }
+            const bounds = boundsOf(points);
+            return { x: bounds.x0, y: bounds.y0, width: bounds.x1 - bounds.x0, height: bounds.y1 - bounds.y0, points, ...style };
+          }
+          const baseX = Math.round(cell.x0 * width);
+          const baseY = Math.round(cell.y0 * height);
+          const baseRight = Math.round(cell.x1 * width);
+          const baseBottom = Math.round(cell.y1 * height);
+          const inset = Math.min(state.gap / 2, Math.max(0, (baseRight - baseX - 1) / 2), Math.max(0, (baseBottom - baseY - 1) / 2));
+          const x = Math.round(baseX + inset);
+          const y = Math.round(baseY + inset);
+          const right = Math.round(baseRight - inset);
+          const bottom = Math.round(baseBottom - inset);
+          return { x, y, width: right - x, height: bottom - y, points: [{ x, y }, { x: right, y }, { x: right, y: bottom }, { x, y: bottom }], ...style };
+        });
+      }
+
+      function pixelDividers(width = state.width, height = state.height) {
+        if (!state.customMode) return [];
+        return customLayout().dividers.map(divider => ({
+          ...divider,
+          points: divider.points.map(point => ({ x: point.x * width, y: point.y * height })),
+          clipPoints: divider.clipPoints.map(point => ({ x: point.x * width, y: point.y * height }))
+        }));
+      }
+
+      function tracePolygon(targetCtx, points, expand = 0) {
+        const center = points.reduce((sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length }), { x: 0, y: 0 });
+        const expanded = expand ? points.map(point => {
+          const distance = Math.hypot(point.x - center.x, point.y - center.y) || 1;
+          return { x: point.x + (point.x - center.x) * expand / distance, y: point.y + (point.y - center.y) * expand / distance };
+        }) : points;
+        targetCtx.moveTo(expanded[0].x, expanded[0].y);
+        expanded.slice(1).forEach(point => targetCtx.lineTo(point.x, point.y));
+        targetCtx.closePath();
+      }
+
+      function traceCellPath(targetCtx, cell, expand = 0) {
+        if (cell.shape === "ellipse") {
+          targetCtx.ellipse(cell.x + cell.width / 2, cell.y + cell.height / 2, Math.max(0, cell.width / 2 + expand), Math.max(0, cell.height / 2 + expand), 0, 0, Math.PI * 2);
+        } else {
+          tracePolygon(targetCtx, cell.points, expand);
+        }
+      }
+
+      function clampOffset(slot, cell, image) {
+        if (!slot || !image || !image.element.complete) return;
+        const quarterTurn = Math.abs(slot.rotation / 90) % 2 === 1;
+        const iw = quarterTurn ? image.element.naturalHeight : image.element.naturalWidth;
+        const ih = quarterTurn ? image.element.naturalWidth : image.element.naturalHeight;
+        const scale = Math.max(cell.width / iw, cell.height / ih) * slot.zoom;
+        const maxX = Math.max(0, (iw * scale - cell.width) / 2);
+        const maxY = Math.max(0, (ih * scale - cell.height) / 2);
+        slot.offsetX = Math.max(-maxX, Math.min(maxX, slot.offsetX));
+        slot.offsetY = Math.max(-maxY, Math.min(maxY, slot.offsetY));
+      }
+
+      function drawSlot(targetCtx, cell, slot) {
+        const image = slot && imageById(slot.imageId);
+        if (!image || !image.element.complete || !image.element.naturalWidth) {
+          targetCtx.fillStyle = "#313a33";
+          targetCtx.beginPath();
+          traceCellPath(targetCtx, cell);
+          targetCtx.fill();
+          return;
+        }
+        clampOffset(slot, cell, image);
+        const img = image.element;
+        const quarterTurn = Math.abs(slot.rotation / 90) % 2 === 1;
+        const boundW = quarterTurn ? img.naturalHeight : img.naturalWidth;
+        const boundH = quarterTurn ? img.naturalWidth : img.naturalHeight;
+        const scale = Math.max(cell.width / boundW, cell.height / boundH) * slot.zoom;
+
+        targetCtx.save();
+        targetCtx.beginPath();
+        traceCellPath(targetCtx, cell, state.gap ? 0 : .8);
+        targetCtx.clip();
+        targetCtx.translate(cell.x + cell.width / 2 + slot.offsetX, cell.y + cell.height / 2 + slot.offsetY);
+        targetCtx.scale(slot.flipX ? -1 : 1, slot.flipY ? -1 : 1);
+        targetCtx.rotate(slot.rotation * Math.PI / 180);
+        targetCtx.drawImage(img, -img.naturalWidth * scale / 2, -img.naturalHeight * scale / 2, img.naturalWidth * scale, img.naturalHeight * scale);
+        targetCtx.restore();
+        if (cell.borderColor && cell.borderWidth) {
+          targetCtx.save();
+          targetCtx.strokeStyle = cell.borderColor;
+          targetCtx.lineWidth = cell.borderWidth;
+          targetCtx.beginPath();
+          traceCellPath(targetCtx, cell);
+          targetCtx.stroke();
+          targetCtx.restore();
+        }
+      }
+
+      function stickerMetrics(sticker, targetCanvas) {
+        const base = Math.min(targetCanvas.width, targetCanvas.height);
+        return { x: sticker.x * targetCanvas.width, y: sticker.y * targetCanvas.height, size: sticker.size * base, stroke: sticker.stroke * base };
+      }
+
+      function traceSticker(targetCtx, type, size, stroke) {
+        const s = size;
+        if (type === "circle") {
+          targetCtx.beginPath();
+          targetCtx.arc(0, 0, s * .43, 0, Math.PI * 2);
+          targetCtx.stroke();
+        } else if (type === "rect") {
+          targetCtx.strokeRect(-s * .44, -s * .34, s * .88, s * .68);
+        } else if (type === "line") {
+          targetCtx.beginPath();
+          targetCtx.moveTo(-s * .46, 0);
+          targetCtx.lineTo(s * .46, 0);
+          targetCtx.stroke();
+        } else if (type === "arrow") {
+          targetCtx.beginPath();
+          targetCtx.moveTo(-s * .48, -s * .09);
+          targetCtx.lineTo(s * .16, -s * .09);
+          targetCtx.lineTo(s * .16, -s * .24);
+          targetCtx.lineTo(s * .5, 0);
+          targetCtx.lineTo(s * .16, s * .24);
+          targetCtx.lineTo(s * .16, s * .09);
+          targetCtx.lineTo(-s * .48, s * .09);
+          targetCtx.closePath();
+          targetCtx.fill();
+          targetCtx.save();
+          targetCtx.lineWidth = Math.max(1, stroke * .28);
+          targetCtx.strokeStyle = "rgba(0,0,0,.82)";
+          targetCtx.stroke();
+          targetCtx.restore();
+        } else if (type === "curve") {
+          targetCtx.beginPath();
+          targetCtx.moveTo(-s * .46, s * .3);
+          targetCtx.bezierCurveTo(-s * .28, -s * .2, s * .08, -s * .32, s * .34, -s * .08);
+          targetCtx.stroke();
+          targetCtx.beginPath();
+          targetCtx.moveTo(s * .11, -s * .09);
+          targetCtx.lineTo(s * .38, -s * .04);
+          targetCtx.lineTo(s * .31, s * .22);
+          targetCtx.stroke();
+        } else if (type === "check") {
+          targetCtx.beginPath();
+          targetCtx.moveTo(-s * .4, -s * .02);
+          targetCtx.lineTo(-s * .12, s * .28);
+          targetCtx.lineTo(s * .44, -s * .34);
+          targetCtx.stroke();
+        } else if (type === "cross") {
+          targetCtx.beginPath();
+          targetCtx.moveTo(-s * .35, -s * .35);
+          targetCtx.lineTo(s * .35, s * .35);
+          targetCtx.moveTo(s * .35, -s * .35);
+          targetCtx.lineTo(-s * .35, s * .35);
+          targetCtx.stroke();
+        } else if (type === "bang") {
+          targetCtx.beginPath();
+          targetCtx.moveTo(0, -s * .42);
+          targetCtx.lineTo(0, s * .16);
+          targetCtx.stroke();
+          targetCtx.beginPath();
+          targetCtx.arc(0, s * .36, Math.max(stroke * .55, s * .045), 0, Math.PI * 2);
+          targetCtx.fill();
+        }
+      }
+
+      function drawSticker(targetCtx, targetCanvas, sticker, selected = false) {
+        const { x, y, size, stroke } = stickerMetrics(sticker, targetCanvas);
+        targetCtx.save();
+        targetCtx.translate(x, y);
+        targetCtx.rotate(sticker.rotation * Math.PI / 180);
+        targetCtx.fillStyle = sticker.color;
+        targetCtx.strokeStyle = sticker.color;
+        targetCtx.lineWidth = Math.max(1, stroke);
+        targetCtx.lineCap = "round";
+        targetCtx.lineJoin = "round";
+        traceSticker(targetCtx, sticker.type, size, stroke);
+        if (selected) {
+          const line = Math.max(2, Math.min(targetCanvas.width, targetCanvas.height) / 360);
+          const handle = line * 2.2;
+          targetCtx.strokeStyle = "#69df96";
+          targetCtx.lineWidth = line;
+          targetCtx.setLineDash([line * 3, line * 2]);
+          targetCtx.strokeRect(-size * .56, -size * .56, size * 1.12, size * 1.12);
+          targetCtx.setLineDash([]);
+          targetCtx.fillStyle = "#69df96";
+          [[-.56,-.56],[.56,-.56],[.56,.56],[-.56,.56]].forEach(([px, py]) => {
+            targetCtx.beginPath();
+            targetCtx.arc(size * px, size * py, handle, 0, Math.PI * 2);
+            targetCtx.fill();
+          });
+        }
+        targetCtx.restore();
+      }
+
+      function paint(targetCanvas, editing) {
+        const targetCtx = targetCanvas.getContext("2d", { alpha: true });
+        targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+        targetCtx.fillStyle = state.background;
+        targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+        targetCtx.imageSmoothingEnabled = true;
+        targetCtx.imageSmoothingQuality = "high";
+        const cells = pixelCells(targetCanvas.width, targetCanvas.height);
+        cells.forEach((cell, index) => drawSlot(targetCtx, cell, state.slots[index]));
+        (currentTemplate().seams || []).forEach(seam => {
+          const points = seam.points.map(([x, y]) => ({ x: x * targetCanvas.width, y: y * targetCanvas.height }));
+          targetCtx.save();
+          targetCtx.strokeStyle = seam.color;
+          targetCtx.lineWidth = seam.width * targetCanvas.width / 1080;
+          targetCtx.lineJoin = "round";
+          targetCtx.lineCap = "round";
+          targetCtx.shadowColor = seam.shadow;
+          targetCtx.shadowBlur = targetCtx.lineWidth * 1.8;
+          targetCtx.shadowOffsetX = targetCtx.lineWidth * .7;
+          targetCtx.beginPath();
+          targetCtx.moveTo(points[0].x, points[0].y);
+          points.slice(1).forEach(point => targetCtx.lineTo(point.x, point.y));
+          targetCtx.stroke();
+          targetCtx.restore();
+        });
+
+        if (editing && state.customMode) {
+          const line = Math.max(2, Math.round(Math.min(targetCanvas.width, targetCanvas.height) / 300));
+          targetCtx.save();
+          targetCtx.strokeStyle = "#69df96";
+          targetCtx.lineWidth = line;
+          pixelDividers(targetCanvas.width, targetCanvas.height).forEach(divider => {
+            targetCtx.save();
+            targetCtx.beginPath();
+            tracePolygon(targetCtx, divider.clipPoints);
+            targetCtx.clip();
+            targetCtx.beginPath();
+            targetCtx.moveTo(divider.points[0].x, divider.points[0].y);
+            targetCtx.lineTo(divider.points[1].x, divider.points[1].y);
+            targetCtx.stroke();
+            targetCtx.restore();
+          });
+          targetCtx.restore();
+        }
+
+        if (editing && state.selectedStickerId == null && state.selected >= 0 && cells[state.selected]) {
+          const c = cells[state.selected];
+          const line = Math.max(2, Math.round(Math.min(targetCanvas.width, targetCanvas.height) / 360));
+          targetCtx.save();
+          targetCtx.strokeStyle = "#55e68d";
+          targetCtx.lineWidth = line;
+          targetCtx.setLineDash([line * 3, line * 2]);
+          targetCtx.beginPath();
+          traceCellPath(targetCtx, c);
+          targetCtx.stroke();
+          targetCtx.restore();
+        }
+        state.stickers.forEach(sticker => drawSticker(targetCtx, targetCanvas, sticker, editing && sticker.id === state.selectedStickerId));
+      }
+
+      function render() {
+        if (canvas.width !== state.width || canvas.height !== state.height) {
+          canvas.width = state.width;
+          canvas.height = state.height;
+        }
+        paint(canvas, true);
+        applyCanvasView();
+        updateControls();
+      }
+
+      function baseViewScale() {
+        const rect = stage.getBoundingClientRect();
+        return Math.max(.01, Math.min((rect.width - 48) / state.width, (rect.height - 48) / state.height));
+      }
+
+      function applyCanvasView() {
+        const scale = baseViewScale() * view.zoom;
+        canvas.style.width = `${state.width * scale}px`;
+        canvas.style.height = `${state.height * scale}px`;
+        canvas.style.transform = `translate(${view.x}px, ${view.y}px)`;
+        $("viewPercent").textContent = `${Math.round(view.zoom * 100)}%`;
+      }
+
+      function fitCanvasView() {
+        view.zoom = 1;
+        view.x = 0;
+        view.y = 0;
+        applyCanvasView();
+      }
+
+      function changeCanvasView(multiplier) {
+        view.zoom = Math.max(.25, Math.min(4, view.zoom * multiplier));
+        applyCanvasView();
+      }
+
+      function updateControls() {
+        const slot = selectedSlot();
+        const hasSelection = Boolean(slot);
+        ["rotateLeftButton", "rotateRightButton", "flipXButton", "flipYButton", "removeButton", "zoom"].forEach(id => $(id).disabled = !hasSelection);
+        $("zoom").value = slot ? slot.zoom : 1;
+        $("zoomValue").textContent = `${Math.round((slot ? slot.zoom : 1) * 100)}%`;
+        syncStickerControls();
+        $("undoButton").disabled = historyIndex <= 0;
+        $("redoButton").disabled = historyIndex < 0 || historyIndex >= history.length - 1;
+      }
+
+      function syncStickerControls() {
+        const sticker = selectedSticker();
+        ["stickerColor", "stickerSizeRange", "stickerRotationRange", "stickerStrokeRange", "duplicateStickerButton", "deleteStickerButton"].forEach(id => $(id).disabled = !sticker);
+        $("clearStickersButton").disabled = !state.stickers.length;
+        if (sticker) {
+          $("stickerColor").value = sticker.color;
+          $("stickerSizeRange").value = Math.round(sticker.size * 100);
+          $("stickerRotationRange").value = sticker.rotation;
+          $("stickerStrokeRange").value = Math.round(sticker.stroke * 1080);
+        }
+        $("stickerSizeValue").textContent = `${Math.round((sticker?.size || .25) * 100)}%`;
+        $("stickerRotationValue").textContent = `${Math.round(sticker?.rotation || 0)}°`;
+        $("stickerStrokeValue").textContent = `${Math.round((sticker?.stroke || 12 / 1080) * 1080)}px`;
+      }
+
+      function addSticker(type) {
+        if (state.stickers.length >= 30) return setStatus("贴图最多 30 个；请先删除不需要的贴图", true);
+        const offset = (state.stickers.length % 6) * .025;
+        const sticker = {
+          id: nextStickerId++, type, x: .5 + offset, y: .5 + offset,
+          size: .25, rotation: type === "curve" ? -12 : 0,
+          color: $("stickerColor").value || "#ff2525", stroke: 12 / 1080
+        };
+        state.stickers.push(sticker);
+        state.selectedStickerId = sticker.id;
+        render();
+        pushHistory();
+        setStatus("贴图已添加；拖动它调整位置");
+      }
+
+      function mutateSticker(fn, message, save = false) {
+        const sticker = selectedSticker();
+        if (!sticker) return;
+        fn(sticker);
+        render();
+        if (save) {
+          pushHistory();
+          if (message) setStatus(message);
+        }
+      }
+
+      function deleteSelectedSticker() {
+        const index = state.stickers.findIndex(sticker => sticker.id === state.selectedStickerId);
+        if (index < 0) return;
+        state.stickers.splice(index, 1);
+        state.selectedStickerId = null;
+        render();
+        pushHistory();
+        setStatus("贴图已删除");
+      }
+
+      function duplicateSelectedSticker() {
+        const source = selectedSticker();
+        if (!source) return;
+        if (state.stickers.length >= 30) return setStatus("贴图最多 30 个；请先删除不需要的贴图", true);
+        const sticker = { ...source, id: nextStickerId++, x: Math.min(.98, source.x + .04), y: Math.min(.98, source.y + .04) };
+        state.stickers.push(sticker);
+        state.selectedStickerId = sticker.id;
+        render();
+        pushHistory();
+        setStatus("贴图已复制");
+      }
+
+      function syncGapInputs() {
+        $("gapRange").value = state.gap;
+        $("gapNumber").value = state.gap;
+        $("gapColor").value = state.background;
+      }
+
+      function setGap(value, save = false) {
+        state.gap = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+        syncGapInputs();
+        render();
+        if (save) {
+          pushHistory();
+          setStatus(state.gap ? `图片间距已设为 ${state.gap}px` : "已恢复无缝拼图");
+        }
+      }
+
+      function renderImageList() {
+        const list = $("imageList");
+        list.replaceChildren();
+        if (!state.images.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty-list";
+          empty.textContent = "还没有图片";
+          list.append(empty);
+          return;
+        }
+        state.images.forEach((image, index) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "thumb";
+          button.draggable = true;
+          button.title = `${image.name}：点击填入当前格，或拖到画布`;
+          button.innerHTML = `<img alt=""><span class="thumb-index">${index + 1}</span>`;
+          button.querySelector("img").src = image.url;
+          button.addEventListener("click", () => assignImage(image.id));
+          button.addEventListener("dragstart", event => event.dataTransfer.setData("text/x-puzzle-image", String(image.id)));
+          list.append(button);
+        });
+      }
+
+      function renderModeControls() {
+        $("templateModeButton").classList.toggle("active", !state.customMode);
+        $("customModeButton").classList.toggle("active", state.customMode);
+        $("templatePanel").hidden = state.customMode;
+        $("customPanel").hidden = !state.customMode;
+        $("customCount").textContent = `当前 ${state.count} 格 · 还可增加 ${9 - state.count} 格`;
+        $("splitVerticalButton").disabled = state.count >= 9;
+        $("splitHorizontalButton").disabled = state.count >= 9;
+        const selectedCell = state.customMode ? customLayout().cells[state.selected] : null;
+        $("splitDiagonalButton").disabled = state.count >= 9 || Boolean(selectedCell?.points);
+        $("splitYButton").disabled = state.count > 7 || Boolean(selectedCell?.points);
+      }
+
+      function buildAutoCustom(count, direction = state.width >= state.height ? "vertical" : "horizontal") {
+        if (count <= 1) return { type: "leaf", id: nextLeafId++ };
+        const firstCount = Math.ceil(count / 2);
+        return {
+          type: "split", direction, ratio: firstCount / count,
+          first: buildAutoCustom(firstCount, direction === "vertical" ? "horizontal" : "vertical"),
+          second: buildAutoCustom(count - firstCount, direction === "vertical" ? "horizontal" : "vertical")
+        };
+      }
+
+      function autoCustomLayout() {
+        const existing = state.slots.filter(Boolean);
+        const used = new Set(existing.map(slot => slot.imageId));
+        const available = state.images.filter(image => !used.has(image.id)).map(image => newSlot(image.id));
+        const count = Math.max(1, Math.min(9, state.images.length || existing.length || 1));
+        state.customRoot = buildAutoCustom(count);
+        state.count = count;
+        state.slots = [...existing, ...available].slice(0, count);
+        while (state.slots.length < count) state.slots.push(null);
+        state.selected = 0;
+        renderModeControls();
+        render();
+        pushHistory();
+        setStatus(state.images.length ? `已按 ${Math.min(9, state.images.length)} 张图片生成 ${count} 格` : "已生成 1 个自定义格子");
+      }
+
+      function enterCustomMode() {
+        if (state.customMode) return;
+        state.customMode = true;
+        autoCustomLayout();
+      }
+
+      function exitCustomMode() {
+        if (!state.customMode) return;
+        state.customMode = false;
+        state.count = Math.max(2, Math.min(9, state.count));
+        state.templateIndex = 0;
+        state.slots = state.slots.slice(0, state.count);
+        while (state.slots.length < state.count) state.slots.push(null);
+        fillEmptySlots();
+        state.selected = Math.min(state.selected, state.count - 1);
+        renderModeControls();
+        renderCountButtons();
+        renderTemplates();
+        render();
+        pushHistory();
+        setStatus("已返回模板拼图");
+      }
+
+      function splitCustom(direction, imageId = null) {
+        const extra = direction === "y" ? 2 : 1;
+        if (!state.customMode || state.count + extra > 9) return setStatus("自定义布局最多 9 格；请选择增加更少格子的分割方式", true);
+        const cells = customLayout().cells;
+        const selectedCell = cells[state.selected];
+        if (!selectedCell) return setStatus("请先选择要分割的格子", true);
+        if ((direction === "diagonal" || direction === "y") && selectedCell.points) return setStatus("斜线和 Y 型只能用于矩形格；请改选一个矩形格", true);
+        const first = { type: "leaf", id: nextLeafId++ };
+        const second = { type: "leaf", id: nextLeafId++ };
+        const replacement = direction === "y"
+          ? { type: "split", direction, first, second, third: { type: "leaf", id: nextLeafId++ } }
+          : { type: "split", direction, ratio: .5, first, second };
+        state.customRoot = replaceLeaf(state.customRoot, selectedCell.leafId, replacement);
+        state.slots.splice(state.selected, 1, state.slots[state.selected], imageId ? newSlot(imageId) : null, ...(direction === "y" ? [null] : []));
+        state.count += extra;
+        fillEmptySlots();
+        if (imageId) state.selected++;
+        renderModeControls();
+        render();
+        pushHistory();
+        const labels = { vertical: "左右分割并增加 1 格", horizontal: "上下分割并增加 1 格", diagonal: "斜线分割并增加 1 格", y: "Y 型分割并增加 2 格" };
+        setStatus(labels[direction]);
+      }
+
+      function resetCustom() {
+        if (!state.customMode) return;
+        const firstSlot = state.slots.find(Boolean) || null;
+        state.customRoot = { type: "leaf", id: nextLeafId++ };
+        state.count = 1;
+        state.slots = [firstSlot];
+        state.selected = 0;
+        renderModeControls();
+        render();
+        pushHistory();
+        setStatus("自定义布局已重置为单格");
+      }
+
+      function renderCountButtons() {
+        const row = $("countRow");
+        row.replaceChildren();
+        for (let count = 2; count <= 9; count++) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `count-button${state.count === count ? " active" : ""}`;
+          button.textContent = count;
+          button.setAttribute("aria-label", `${count} 张图片模板`);
+          button.addEventListener("click", () => changeCount(count));
+          row.append(button);
+        }
+      }
+
+      function drawTemplatePreview(preview, template) {
+        const pctx = preview.getContext("2d");
+        pctx.clearRect(0, 0, preview.width, preview.height);
+        pctx.fillStyle = "#343d36";
+        pctx.fillRect(0, 0, preview.width, preview.height);
+        pctx.strokeStyle = "#89948c";
+        pctx.lineWidth = 3;
+        template.cells.forEach(cell => {
+          const points = cellPoints(cell).map(point => ({ x: point.x * preview.width, y: point.y * preview.height }));
+          const bounds = boundsOf(points);
+          const previewCell = { x: bounds.x0, y: bounds.y0, width: bounds.x1 - bounds.x0, height: bounds.y1 - bounds.y0, points, shape: cell.shape || "polygon" };
+          pctx.beginPath();
+          traceCellPath(pctx, previewCell);
+          if (cell.borderColor) pctx.strokeStyle = cell.borderColor;
+          pctx.lineWidth = cell.borderWidth ? Math.max(2, cell.borderWidth * preview.width / 1080) : 3;
+          pctx.stroke();
+          pctx.strokeStyle = "#89948c";
+          pctx.lineWidth = 3;
+        });
+      }
+
+      function renderTemplates() {
+        const grid = $("templateGrid");
+        grid.replaceChildren();
+        if (state.customMode) return;
+        TEMPLATES[state.count].forEach((template, index) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `template-button${state.templateIndex === index ? " active" : ""}`;
+          button.setAttribute("aria-label", `使用${template.name}模板`);
+          const preview = document.createElement("canvas");
+          preview.width = 120;
+          preview.height = 88;
+          const name = document.createElement("span");
+          name.className = "template-name";
+          name.textContent = template.name;
+          button.append(preview, name);
+          drawTemplatePreview(preview, template);
+          button.addEventListener("click", () => {
+            state.templateIndex = index;
+            state.selected = Math.min(state.selected, state.count - 1);
+            renderTemplates();
+            render();
+            pushHistory();
+            setStatus(`已切换为“${template.name}”模板`);
+          });
+          grid.append(button);
+        });
+      }
+
+      function fillEmptySlots() {
+        const used = new Set(state.slots.filter(Boolean).map(slot => slot.imageId));
+        const available = state.images.filter(image => !used.has(image.id));
+        state.slots = state.slots.map(slot => slot || (available.length ? newSlot(available.shift().id) : null));
+      }
+
+      function changeCount(count) {
+        state.customMode = false;
+        state.count = count;
+        state.templateIndex = 0;
+        state.slots = state.slots.slice(0, count);
+        while (state.slots.length < count) state.slots.push(null);
+        fillEmptySlots();
+        state.selected = Math.min(Math.max(0, state.selected), count - 1);
+        renderModeControls();
+        renderCountButtons();
+        renderTemplates();
+        render();
+        pushHistory();
+        setStatus(`已选择 ${count} 图模板`);
+      }
+
+      function assignImage(imageId, cellIndex = state.selected) {
+        if (cellIndex < 0) cellIndex = state.slots.findIndex(slot => !slot);
+        if (cellIndex < 0) cellIndex = 0;
+        if (state.customMode && !state.slots.some(slot => slot?.imageId === imageId)) {
+          const empty = state.slots.findIndex(slot => !slot);
+          if (empty >= 0) cellIndex = empty;
+          else if (state.count < 9) {
+            state.selected = cellIndex;
+            const cell = customLayout().cells[cellIndex];
+            return splitCustom((cell.x1 - cell.x0) * state.width >= (cell.y1 - cell.y0) * state.height ? "vertical" : "horizontal", imageId);
+          }
+        }
+        state.selected = cellIndex;
+        state.slots[cellIndex] = newSlot(imageId);
+        render();
+        pushHistory();
+        setStatus(`图片已放入第 ${cellIndex + 1} 格`);
+      }
+
+      async function addFiles(files) {
+        const imageFiles = [...files].filter(file => file.type.startsWith("image/"));
+        if (!imageFiles.length) return setStatus("请选择 PNG、JPG、WEBP 等图片文件", true);
+        const loaded = await Promise.all(imageFiles.map(file => new Promise(resolve => {
+          const url = URL.createObjectURL(file);
+          const element = new Image();
+          element.onload = () => resolve({ id: nextImageId++, name: file.name, url, element });
+          element.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+          element.src = url;
+        })));
+        const valid = loaded.filter(Boolean);
+        state.images.push(...valid);
+        if (!state.customMode && state.images.length >= 2 && state.images.length <= 9 && state.slots.every(slot => !slot)) {
+          state.count = state.images.length;
+          state.templateIndex = 0;
+          state.slots = Array.from({ length: state.count }, (_, index) => valid[index] ? newSlot(valid[index].id) : null);
+          state.selected = 0;
+          renderModeControls();
+          renderCountButtons();
+          renderTemplates();
+        } else {
+          fillEmptySlots();
+        }
+        renderImageList();
+        render();
+        pushHistory();
+        setStatus(`已添加 ${valid.length} 张图片`);
+      }
+
+      function mutateSelected(fn, message) {
+        const slot = selectedSlot();
+        if (!slot) return setStatus("请先选择有图片的格子", true);
+        fn(slot);
+        clampOffset(slot, pixelCells()[state.selected], imageById(slot.imageId));
+        render();
+        pushHistory();
+        setStatus(message);
+      }
+
+      function shuffle() {
+        const filled = state.slots.filter(Boolean);
+        for (let i = filled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [filled[i], filled[j]] = [filled[j], filled[i]];
+        }
+        let cursor = 0;
+        state.slots = state.slots.map(slot => slot ? filled[cursor++] : null);
+        render();
+        pushHistory();
+        setStatus("图片位置已随机调整");
+      }
+
+      function clearImages() {
+        if (!state.images.length) return setStatus("当前没有图片");
+        if (!window.confirm("清空已添加的所有图片和编辑记录？原始文件不会被删除。")) return;
+        state.images.forEach(image => URL.revokeObjectURL(image.url));
+        state.images = [];
+        state.slots = Array.from({ length: state.count }, () => null);
+        state.selected = 0;
+        renderImageList();
+        render();
+        history = [];
+        historyIndex = -1;
+        pushHistory();
+        setStatus("图片已清空");
+      }
+
+      function applySize(width, height) {
+        width = Math.max(64, Math.min(4096, Math.round(Number(width) || 1080)));
+        height = Math.max(64, Math.min(4096, Math.round(Number(height) || 1080)));
+        state.width = width;
+        state.height = height;
+        saveCanvasSize();
+        state.slots.forEach((slot, index) => slot && clampOffset(slot, pixelCells()[index], imageById(slot.imageId)));
+        syncSizeInputs();
+        render();
+        fitCanvasView();
+        pushHistory();
+        setStatus(`画布尺寸已设为 ${width}×${height}`);
+      }
+
+      function syncSizeInputs() {
+        $("canvasWidth").value = state.width;
+        $("canvasHeight").value = state.height;
+        const preset = `${state.width}x${state.height}`;
+        $("sizePreset").value = [...$("sizePreset").options].some(option => option.value === preset) ? preset : "";
+      }
+
+      function saveCanvasSize() {
+        try { localStorage.setItem("puzzle-canvas-size-v1", JSON.stringify({ width: state.width, height: state.height })); } catch {}
+      }
+
+      function formatExportFilename(date, number) {
+        const day = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
+        return `拼图-${day}-${String(number).padStart(3, "0")}.jpg`;
+      }
+
+      function nextExportFilename(now = new Date()) {
+        const day = formatExportFilename(now, 1).slice(3, 11);
+        try {
+          const saved = JSON.parse(localStorage.getItem("puzzle-export-sequence-v1"));
+          if (saved?.date === day && Number.isInteger(saved.number)) exportSequence = saved;
+        } catch {}
+        exportSequence = { date: day, number: exportSequence.date === day ? exportSequence.number + 1 : 1 };
+        try { localStorage.setItem("puzzle-export-sequence-v1", JSON.stringify(exportSequence)); } catch {}
+        return formatExportFilename(now, exportSequence.number);
+      }
+
+      function exportImage() {
+        if (state.slots.some(slot => !slot)) return setStatus("请先填满所有格子再导出", true);
+        const output = document.createElement("canvas");
+        output.width = state.width;
+        output.height = state.height;
+        const outputCtx = output.getContext("2d");
+        outputCtx.fillStyle = "#fff";
+        outputCtx.fillRect(0, 0, output.width, output.height);
+        paint(output, false);
+        output.toBlob(blob => {
+          if (!blob) return setStatus("导出失败，请降低画布尺寸后重试", true);
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          const filename = nextExportFilename();
+          link.download = filename;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          setStatus(`已导出 ${filename}`);
+        }, "image/jpeg", .94);
+      }
+
+      function eventPoint(event) {
+        const rect = canvas.getBoundingClientRect();
+        return { x: (event.clientX - rect.left) * state.width / rect.width, y: (event.clientY - rect.top) * state.height / rect.height };
+      }
+
+      function pointInPolygon(point, polygon) {
+        let inside = false;
+        for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
+          const a = polygon[index];
+          const b = polygon[previous];
+          if ((a.y > point.y) !== (b.y > point.y) && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+        }
+        return inside;
+      }
+
+      function pointInCell(point, cell) {
+        if (cell.shape === "ellipse") {
+          const dx = (point.x - cell.x - cell.width / 2) / (cell.width / 2);
+          const dy = (point.y - cell.y - cell.height / 2) / (cell.height / 2);
+          return dx * dx + dy * dy <= 1;
+        }
+        return pointInPolygon(point, cell.points);
+      }
+
+      function cellAt(point) {
+        const cells = pixelCells();
+        for (let index = cells.length - 1; index >= 0; index--) if (pointInCell(point, cells[index])) return index;
+        return -1;
+      }
+
+      function stickerAt(point) {
+        for (let index = state.stickers.length - 1; index >= 0; index--) {
+          const sticker = state.stickers[index];
+          const { x, y, size, stroke } = stickerMetrics(sticker, canvas);
+          const angle = -sticker.rotation * Math.PI / 180;
+          const dx = point.x - x;
+          const dy = point.y - y;
+          const localX = dx * Math.cos(angle) - dy * Math.sin(angle);
+          const localY = dx * Math.sin(angle) + dy * Math.cos(angle);
+          const tolerance = Math.max(stroke * 1.5, size * .06);
+          if (sticker.type === "circle") {
+            if (Math.abs(Math.hypot(localX, localY) - size * .43) <= tolerance) return sticker;
+            continue;
+          }
+          if (sticker.type === "rect") {
+            const inside = Math.abs(localX) <= size * .44 + tolerance && Math.abs(localY) <= size * .34 + tolerance;
+            const onEdge = Math.abs(Math.abs(localX) - size * .44) <= tolerance || Math.abs(Math.abs(localY) - size * .34) <= tolerance;
+            if (inside && onEdge) return sticker;
+            continue;
+          }
+          if (sticker.type === "line") {
+            if (Math.abs(localX) <= size * .5 && Math.abs(localY) <= tolerance) return sticker;
+            continue;
+          }
+          const yLimit = ["arrow", "curve", "line"].includes(sticker.type) ? size * .36 : size * .55;
+          if (Math.abs(localX) <= size * .56 && Math.abs(localY) <= yLimit) return sticker;
+        }
+        return null;
+      }
+
+      function distanceToSegment(point, start, end) {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const lengthSquared = dx * dx + dy * dy;
+        const ratio = lengthSquared ? Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared)) : 0;
+        return Math.hypot(point.x - start.x - ratio * dx, point.y - start.y - ratio * dy);
+      }
+
+      function dividerAt(point) {
+        if (!state.customMode) return null;
+        const rect = canvas.getBoundingClientRect();
+        const tolerance = 8 * Math.max(state.width / rect.width, state.height / rect.height);
+        return pixelDividers().find(divider => (divider.direction === "vertical" || divider.direction === "horizontal") && pointInPolygon(point, divider.clipPoints) && distanceToSegment(point, divider.points[0], divider.points[1]) <= tolerance) || null;
+      }
+
+      canvas.addEventListener("pointerdown", event => {
+        if (event.button !== 0 || spaceHeld) return;
+        const point = eventPoint(event);
+        const sticker = stickerAt(point);
+        if (sticker) {
+          state.selectedStickerId = sticker.id;
+          drag = { kind: "sticker", start: point, x: sticker.x, y: sticker.y, moved: false };
+          canvas.setPointerCapture(event.pointerId);
+          canvas.classList.add("dragging");
+          render();
+          return;
+        }
+        const divider = dividerAt(point);
+        if (divider) {
+          drag = { kind: "divider", divider, moved: false };
+          canvas.setPointerCapture(event.pointerId);
+          canvas.classList.add("dragging");
+          return;
+        }
+        const index = cellAt(point);
+        if (index < 0) return;
+        state.selectedStickerId = null;
+        state.selected = index;
+        if (state.customMode) renderModeControls();
+        drag = state.slots[index] ? { kind: "image", start: point, offsetX: state.slots[index].offsetX, offsetY: state.slots[index].offsetY, moved: false } : null;
+        canvas.setPointerCapture(event.pointerId);
+        canvas.classList.toggle("dragging", Boolean(drag));
+        render();
+      });
+
+      canvas.addEventListener("pointermove", event => {
+        const point = eventPoint(event);
+        if (!drag) {
+          const divider = dividerAt(point);
+          canvas.style.cursor = stickerAt(point) ? "move" : divider ? (divider.direction === "vertical" ? "ew-resize" : "ns-resize") : "grab";
+          return;
+        }
+        if (drag.kind === "sticker") {
+          const sticker = selectedSticker();
+          if (!sticker) return;
+          sticker.x = Math.max(.02, Math.min(.98, drag.x + (point.x - drag.start.x) / state.width));
+          sticker.y = Math.max(.02, Math.min(.98, drag.y + (point.y - drag.start.y) / state.height));
+          drag.moved ||= Math.abs(point.x - drag.start.x) + Math.abs(point.y - drag.start.y) > 2;
+          render();
+          return;
+        }
+        if (drag.kind === "divider") {
+          const node = nodeAtPath(drag.divider.path);
+          const bounds = drag.divider.bounds;
+          const ratio = drag.divider.direction === "vertical"
+            ? (point.x / state.width - bounds.x0) / (bounds.x1 - bounds.x0)
+            : (point.y / state.height - bounds.y0) / (bounds.y1 - bounds.y0);
+          node.ratio = Math.max(.12, Math.min(.88, ratio));
+          drag.moved = true;
+          render();
+          return;
+        }
+        if (!selectedSlot()) return;
+        const slot = selectedSlot();
+        slot.offsetX = drag.offsetX + point.x - drag.start.x;
+        slot.offsetY = drag.offsetY + point.y - drag.start.y;
+        drag.moved ||= Math.abs(point.x - drag.start.x) + Math.abs(point.y - drag.start.y) > 2;
+        clampOffset(slot, pixelCells()[state.selected], imageById(slot.imageId));
+        render();
+      });
+
+      canvas.addEventListener("pointerup", () => {
+        if (drag?.moved) pushHistory();
+        drag = null;
+        canvas.classList.remove("dragging");
+        canvas.style.cursor = "grab";
+      });
+
+      canvas.addEventListener("wheel", event => {
+        if (event.ctrlKey) return;
+        const sticker = selectedSticker();
+        if (sticker) {
+          event.preventDefault();
+          sticker.size = Math.max(.05, Math.min(.8, sticker.size + (event.deltaY < 0 ? .02 : -.02)));
+          render();
+          clearTimeout(canvas._wheelTimer);
+          canvas._wheelTimer = setTimeout(pushHistory, 180);
+          return;
+        }
+        if (!selectedSlot()) return;
+        event.preventDefault();
+        const slot = selectedSlot();
+        slot.zoom = Math.max(.1, Math.min(3, slot.zoom + (event.deltaY < 0 ? .06 : -.06)));
+        clampOffset(slot, pixelCells()[state.selected], imageById(slot.imageId));
+        render();
+        clearTimeout(canvas._wheelTimer);
+        canvas._wheelTimer = setTimeout(pushHistory, 180);
+      }, { passive: false });
+
+      canvas.addEventListener("dragover", event => event.preventDefault());
+      canvas.addEventListener("drop", event => {
+        event.preventDefault();
+        const imageId = Number(event.dataTransfer.getData("text/x-puzzle-image"));
+        const point = eventPoint(event);
+        const index = cellAt(point);
+        if (imageId && index >= 0) assignImage(imageId, index);
+      });
+
+      [stage, document.body].forEach(target => {
+        target.addEventListener("dragenter", event => { if (event.dataTransfer?.types.includes("Files")) stage.classList.add("drag-over"); });
+        target.addEventListener("dragleave", event => { if (!stage.contains(event.relatedTarget)) stage.classList.remove("drag-over"); });
+      });
+      stage.addEventListener("dragover", event => event.preventDefault());
+      stage.addEventListener("drop", event => {
+        stage.classList.remove("drag-over");
+        if (event.dataTransfer.files.length) {
+          event.preventDefault();
+          addFiles(event.dataTransfer.files);
+        }
+      });
+
+      $("fileInput").addEventListener("change", event => { addFiles(event.target.files); event.target.value = ""; });
+      $("viewOutButton").addEventListener("click", () => changeCanvasView(1 / 1.2));
+      $("viewInButton").addEventListener("click", () => changeCanvasView(1.2));
+      $("fitViewButton").addEventListener("click", fitCanvasView);
+      $("templateModeButton").addEventListener("click", exitCustomMode);
+      $("customModeButton").addEventListener("click", enterCustomMode);
+      $("autoCustomButton").addEventListener("click", autoCustomLayout);
+      $("splitVerticalButton").addEventListener("click", () => splitCustom("vertical"));
+      $("splitHorizontalButton").addEventListener("click", () => splitCustom("horizontal"));
+      $("splitDiagonalButton").addEventListener("click", () => splitCustom("diagonal"));
+      $("splitYButton").addEventListener("click", () => splitCustom("y"));
+      $("resetCustomButton").addEventListener("click", resetCustom);
+      $("shuffleButton").addEventListener("click", shuffle);
+      $("clearButton").addEventListener("click", clearImages);
+      $("rotateLeftButton").addEventListener("click", () => mutateSelected(slot => slot.rotation -= 90, "图片已向左旋转"));
+      $("rotateRightButton").addEventListener("click", () => mutateSelected(slot => slot.rotation += 90, "图片已向右旋转"));
+      $("flipXButton").addEventListener("click", () => mutateSelected(slot => slot.flipX = !slot.flipX, "图片已水平翻转"));
+      $("flipYButton").addEventListener("click", () => mutateSelected(slot => slot.flipY = !slot.flipY, "图片已垂直翻转"));
+      $("removeButton").addEventListener("click", () => {
+        if (!selectedSlot()) return;
+        state.slots[state.selected] = null;
+        render(); pushHistory(); setStatus("图片已从当前格移出");
+      });
+      $("zoom").addEventListener("input", event => {
+        const slot = selectedSlot();
+        if (!slot) return;
+        slot.zoom = Number(event.target.value);
+        clampOffset(slot, pixelCells()[state.selected], imageById(slot.imageId));
+        render();
+      });
+      $("zoom").addEventListener("change", pushHistory);
+      $("gapRange").addEventListener("input", event => setGap(event.target.value));
+      $("gapRange").addEventListener("change", event => setGap(event.target.value, true));
+      $("gapNumber").addEventListener("change", event => setGap(event.target.value, true));
+      $("gapColor").addEventListener("input", event => { state.background = event.target.value; render(); });
+      $("gapColor").addEventListener("change", () => { pushHistory(); setStatus("间距与露底颜色已更新"); });
+      document.querySelectorAll("[data-sticker]").forEach(button => button.addEventListener("click", () => addSticker(button.dataset.sticker)));
+      $("stickerColor").addEventListener("input", event => mutateSticker(sticker => sticker.color = event.target.value));
+      $("stickerColor").addEventListener("change", () => mutateSticker(() => {}, "贴图颜色已更新", true));
+      $("stickerSizeRange").addEventListener("input", event => mutateSticker(sticker => sticker.size = Number(event.target.value) / 100));
+      $("stickerSizeRange").addEventListener("change", () => mutateSticker(() => {}, "贴图大小已更新", true));
+      $("stickerRotationRange").addEventListener("input", event => mutateSticker(sticker => sticker.rotation = Number(event.target.value)));
+      $("stickerRotationRange").addEventListener("change", () => mutateSticker(() => {}, "贴图角度已更新", true));
+      $("stickerStrokeRange").addEventListener("input", event => mutateSticker(sticker => sticker.stroke = Number(event.target.value) / 1080));
+      $("stickerStrokeRange").addEventListener("change", () => mutateSticker(() => {}, "贴图粗细已更新", true));
+      $("duplicateStickerButton").addEventListener("click", duplicateSelectedSticker);
+      $("deleteStickerButton").addEventListener("click", deleteSelectedSticker);
+      $("clearStickersButton").addEventListener("click", () => {
+        if (!state.stickers.length || !window.confirm("清空画布上的全部贴图？可以使用撤销恢复。")) return;
+        state.stickers = [];
+        state.selectedStickerId = null;
+        render();
+        pushHistory();
+        setStatus("贴图已清空");
+      });
+      $("undoButton").addEventListener("click", () => { if (historyIndex > 0) restore(history[--historyIndex]); });
+      $("redoButton").addEventListener("click", () => { if (historyIndex < history.length - 1) restore(history[++historyIndex]); });
+      $("jpgButton").addEventListener("click", exportImage);
+      $("sizePreset").addEventListener("change", event => {
+        const [width, height] = event.target.value.split("x").map(Number);
+        applySize(width, height);
+      });
+      [$("canvasWidth"), $("canvasHeight")].forEach(input => input.addEventListener("change", () => applySize($("canvasWidth").value, $("canvasHeight").value)));
+      document.addEventListener("keydown", event => {
+        if (event.code === "Space" && document.activeElement?.tagName !== "INPUT") {
+          spaceHeld = true;
+          event.preventDefault();
+        }
+        const command = event.ctrlKey || event.metaKey;
+        if (command && event.key.toLowerCase() === "z") {
+          event.preventDefault();
+          if (event.shiftKey) $("redoButton").click(); else $("undoButton").click();
+        } else if (command && event.key.toLowerCase() === "y") {
+          event.preventDefault(); $("redoButton").click();
+        } else if ((event.key === "Delete" || event.key === "Backspace") && document.activeElement?.tagName !== "INPUT") {
+          event.preventDefault();
+          if (selectedSticker()) deleteSelectedSticker(); else $("removeButton").click();
+        } else if (event.key === "Escape" && selectedSticker()) {
+          state.selectedStickerId = null;
+          render();
+        }
+      });
+      document.addEventListener("keyup", event => { if (event.code === "Space") spaceHeld = false; });
+
+      stage.addEventListener("pointerdown", event => {
+        if (event.target.closest?.(".view-controls")) return;
+        const onCanvas = event.target === canvas;
+        if (event.button !== 1 && !spaceHeld && onCanvas) return;
+        if (event.button !== 0 && event.button !== 1) return;
+        event.preventDefault();
+        viewDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: view.x, y: view.y };
+        stage.setPointerCapture(event.pointerId);
+        stage.classList.add("panning");
+      });
+      stage.addEventListener("pointermove", event => {
+        if (!viewDrag || event.pointerId !== viewDrag.pointerId) return;
+        view.x = viewDrag.x + event.clientX - viewDrag.startX;
+        view.y = viewDrag.y + event.clientY - viewDrag.startY;
+        applyCanvasView();
+      });
+      stage.addEventListener("pointerup", event => {
+        if (!viewDrag || event.pointerId !== viewDrag.pointerId) return;
+        viewDrag = null;
+        stage.classList.remove("panning");
+      });
+      stage.addEventListener("wheel", event => {
+        if (!event.ctrlKey) return;
+        event.preventDefault();
+        changeCanvasView(event.deltaY < 0 ? 1.12 : 1 / 1.12);
+      }, { passive: false });
+      new ResizeObserver(applyCanvasView).observe(stage);
+
+      window.__puzzleSelfTest = () => {
+        const errors = [];
+        let checked = 0;
+        for (const [countText, templates] of Object.entries(TEMPLATES)) {
+          const count = Number(countText);
+          for (const template of templates) {
+            checked++;
+            if (template.cells.length !== count) errors.push(`${count}/${template.name}: 格子数量错误`);
+            const area = template.cells.reduce((sum, cell) => sum + (cell.shape === "ellipse" ? Math.PI * (cell.x1 - cell.x0) * (cell.y1 - cell.y0) / 4 : polygonArea(cellPoints(cell))), 0);
+            if (!template.overlap && Math.abs(area - 1) > 1e-9) errors.push(`${count}/${template.name}: 总面积 ${area}`);
+            template.cells.forEach((c, i) => {
+              const points = cellPoints(c);
+              if (points.some(point => point.x < 0 || point.y < 0 || point.x > 1 || point.y > 1) || polygonArea(points) <= 0) errors.push(`${count}/${template.name}/${i}: 坐标无效`);
+              if (!template.overlap) template.cells.slice(i + 1).forEach((d, j) => {
+                const overlap = polygonArea(clipPolygon(points, cellPoints(d)));
+                if (overlap > 1e-9) errors.push(`${count}/${template.name}/${i}-${i+j+1}: 格子重叠`);
+              });
+            });
+          }
+        }
+        const customTest = {
+          type: "split", direction: "vertical", ratio: .4,
+          first: { type: "leaf", id: 100 },
+          second: { type: "split", direction: "horizontal", ratio: .6, first: { type: "leaf", id: 101 }, second: { type: "leaf", id: 102 } }
+        };
+        const custom = customLayout(customTest);
+        const customArea = custom.cells.reduce((sum, c) => sum + (c.x1 - c.x0) * (c.y1 - c.y0), 0);
+        if (custom.cells.length !== 3) errors.push("自定义布局：格子数量错误");
+        if (custom.dividers.length !== 2) errors.push("自定义布局：分隔线数量错误");
+        if (Math.abs(customArea - 1) > 1e-9) errors.push(`自定义布局：总面积 ${customArea}`);
+        const diagonal = customLayout({ type: "split", direction: "diagonal", ratio: .5, first: { type: "leaf", id: 110 }, second: { type: "leaf", id: 111 } });
+        const yLayout = customLayout({ type: "split", direction: "y", first: { type: "leaf", id: 120 }, second: { type: "leaf", id: 121 }, third: { type: "leaf", id: 122 } });
+        if (diagonal.cells.length !== 2 || Math.abs(diagonal.cells.reduce((sum, cell) => sum + polygonArea(cellPoints(cell)), 0) - 1) > 1e-9) errors.push("自定义斜线布局错误");
+        if (yLayout.cells.length !== 3 || Math.abs(yLayout.cells.reduce((sum, cell) => sum + polygonArea(cellPoints(cell)), 0) - 1) > 1e-9) errors.push("自定义 Y 型布局错误");
+        const stickerTypes = ["arrow", "curve", "circle", "rect", "line", "check", "cross", "bang"];
+        const stickerPixels = stickerTypes.map(type => {
+          const testCanvas = document.createElement("canvas");
+          testCanvas.width = 120;
+          testCanvas.height = 120;
+          const testCtx = testCanvas.getContext("2d");
+          drawSticker(testCtx, testCanvas, { type, x: .5, y: .5, size: .7, rotation: 0, color: "#ff2525", stroke: 8 / 120 });
+          const pixels = testCtx.getImageData(0, 0, 120, 120).data;
+          let drawn = 0;
+          for (let index = 3; index < pixels.length; index += 4) if (pixels[index]) drawn++;
+          if (drawn < 100) errors.push(`贴图绘制错误：${type}`);
+          return drawn;
+        });
+        const filenameTest = formatExportFilename(new Date(2026, 8, 4), 7);
+        if (filenameTest !== "拼图-20260904-007.jpg") errors.push(`导出命名错误：${filenameTest}`);
+        return { pass: errors.length === 0, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, errors };
+      };
+
+      renderImageList();
+      syncSizeInputs();
+      syncGapInputs();
+      renderModeControls();
+      renderCountButtons();
+      renderTemplates();
+      render();
+      requestAnimationFrame(fitCanvasView);
+      pushHistory();
+    })();
+  </script>
+</body>
+</html>
