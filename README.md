@@ -7,7 +7,7 @@
 在 Windows PowerShell 中粘贴并回车：
 
 ```powershell
-iex ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(((irm 'https://api.github.com/repos/qq541253643-art/seamless-collage-tool/contents/install.ps1?ref=main').content -replace '\s',''))))
+irm https://raw.githubusercontent.com/qq541253643-art/seamless-collage-tool/main/install.ps1 | iex
 ```
 
 程序会安装到当前用户的“文档\无缝拼图工具”，并在桌面创建“无缝拼图工具”快捷方式。以后从桌面快捷方式打开即可。
