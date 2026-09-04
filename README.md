@@ -14,7 +14,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'https://raw.githubu
 
 ## 更新
 
-从桌面快捷方式打开时，程序会读取仓库的 `manifest.json`，只下载内容发生变化的文件。网络不可用时会继续打开已经安装的版本，检查结果保存在安装目录的“更新状态.txt”。
+从桌面快捷方式打开时，程序会读取仓库的 `manifest.json`，只下载内容发生变化的文件。网络不可用时会继续打开已经安装的版本，检查结果保存在安装目录的 `update-status.txt`。
 
 ## 手动使用
 

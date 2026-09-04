@@ -1,5 +1,5 @@
 param(
-  [string]$InstallDir = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) '无缝拼图工具'),
+  [string]$InstallDir = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) (-join [char[]](0x65E0, 0x7F1D, 0x62FC, 0x56FE, 0x5DE5, 0x5177))),
   [string]$DesktopDir = [Environment]::GetFolderPath('Desktop'),
   [string]$SourceBase = 'https://raw.githubusercontent.com/qq541253643-art/seamless-collage-tool/main',
   [switch]$NoOpen
@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 $SourceBase = $SourceBase.TrimEnd('/')
 $cacheBuster = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $tempDir = Join-Path ([IO.Path]::GetTempPath()) ('seamless-collage-' + [Guid]::NewGuid().ToString('N'))
+$appName = -join [char[]](0x65E0, 0x7F1D, 0x62FC, 0x56FE, 0x5DE5, 0x5177)
 
 function Get-RemoteFile([string]$Name, [string]$Destination) {
   $encodedName = [Uri]::EscapeDataString($Name)
@@ -22,37 +23,38 @@ try {
 
   $manifestPath = Join-Path $tempDir 'manifest.json'
   Get-RemoteFile 'manifest.json' $manifestPath
-  $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+  $manifest = [IO.File]::ReadAllText($manifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
 
   foreach ($file in $manifest.files) {
     $name = [string]$file.path
     if ([string]::IsNullOrWhiteSpace($name) -or [IO.Path]::GetFileName($name) -ne $name) {
-      throw "更新清单包含无效文件名：$name"
+      throw "Invalid file name in update manifest: $name"
     }
     $downloadPath = Join-Path $tempDir $name
     Get-RemoteFile $name $downloadPath
     $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $downloadPath).Hash
     if ($actualHash -ne ([string]$file.sha256).ToUpperInvariant()) {
-      throw "文件校验失败：$name"
+      throw "File verification failed: $name"
     }
     Move-Item -LiteralPath $downloadPath -Destination (Join-Path $InstallDir $name) -Force
   }
 
+  $shortcutPath = Join-Path $DesktopDir ($appName + '.lnk')
   $shell = New-Object -ComObject WScript.Shell
-  $shortcut = $shell.CreateShortcut((Join-Path $DesktopDir '无缝拼图工具.lnk'))
+  $shortcut = $shell.CreateShortcut($shortcutPath)
   $shortcut.TargetPath = (Get-Process -Id $PID).Path
   $shortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $InstallDir 'launch.ps1') + '"'
   $shortcut.WorkingDirectory = $InstallDir
   $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,220"
-  $shortcut.Description = '打开无缝拼图工具并检查更新'
+  $shortcut.Description = 'Open Seamless Collage Tool and check for updates'
   $shortcut.Save()
 
-  Write-Host "安装完成：$InstallDir" -ForegroundColor Green
-  Write-Host "桌面快捷方式：$(Join-Path $DesktopDir '无缝拼图工具.lnk')"
+  Write-Host "Installed: $InstallDir" -ForegroundColor Green
+  Write-Host "Desktop shortcut: $shortcutPath"
   if (-not $NoOpen) { Start-Process (Join-Path $InstallDir 'app.html') }
 }
 catch {
-  Write-Error "安装失败：$($_.Exception.Message)"
+  Write-Error "Installation failed: $($_.Exception.Message)"
   exit 1
 }
 finally {
