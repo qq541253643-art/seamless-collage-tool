@@ -42,6 +42,7 @@
     }
     .brand { display: flex; align-items: center; gap: 10px; min-width: 205px; font-size: 18px; font-weight: 700; }
     .brand-mark { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; background: var(--green); color: #07150d; }
+    .version-badge { padding: 2px 7px; border: 1px solid #496053; border-radius: 999px; background: #263129; color: #b9c9bf; font-size: 10px; font-weight: 600; line-height: 1.4; }
     .size-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
     .size-tools label { color: var(--muted); }
     .size-input {
@@ -168,6 +169,8 @@
     .layout-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 16px; }
     .layout-tab { padding: 9px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); cursor: pointer; }
     .layout-tab.active { border-color: var(--green); background: #194d2d; color: #aef0c6; }
+    .layout-support-note { margin: -5px 0 14px; padding: 9px 10px; border: 1px solid #3d654b; border-radius: 8px; background: #17251c; color: #c9ded0; font-size: 11px; }
+    .layout-support-note strong { color: #7be7a5; }
     .template-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .template-button { padding: 7px; border: 2px solid transparent; background: #171c18; }
     .template-button:hover { border-color: #66746a; }
@@ -272,7 +275,7 @@
 <body>
   <main class="app">
     <header class="topbar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true">▦</span><span>无缝拼图工具</span></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true">▦</span><span>无缝拼图工具</span><span id="versionBadge" class="version-badge" aria-label="当前版本"></span></div>
       <div class="size-tools">
         <label for="canvasWidth">画布</label>
         <input id="canvasWidth" class="size-input" type="number" min="64" max="4096" value="1080" aria-label="画布宽度">
@@ -328,6 +331,7 @@
           <button id="templateModeButton" class="layout-tab active" type="button">模板拼图</button>
           <button id="customModeButton" class="layout-tab" type="button">自定义布局</button>
         </div>
+        <p id="layoutSupportNote" class="layout-support-note"><strong>模板也能放视频：</strong>先选画布格子，再点左侧视频；模板已满时，新导入视频会替换当前格。</p>
         <div id="templatePanel" class="template-panel">
           <div id="countRow" class="count-row" aria-label="图片数量"></div>
           <div id="templateGrid" class="template-grid"></div>
@@ -427,6 +431,7 @@
     (() => {
       "use strict";
 
+      const APP_VERSION = "1.1.1";
       const R = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
       const P = coords => {
         const points = coords.map(([x, y]) => ({ x, y }));
@@ -504,6 +509,8 @@
       };
 
       const $ = id => document.getElementById(id);
+      $("versionBadge").textContent = `v${APP_VERSION}`;
+      document.title = `无缝拼图工具 v${APP_VERSION}`;
       const canvas = $("canvas");
       const ctx = canvas.getContext("2d", { alpha: true });
       const stage = $("stage");
@@ -1198,6 +1205,9 @@
         $("customModeButton").classList.toggle("active", state.customMode);
         $("templatePanel").hidden = state.customMode;
         $("customPanel").hidden = !state.customMode;
+        $("layoutSupportNote").innerHTML = state.customMode
+          ? "<strong>自定义格也能放视频：</strong>选中格子后点左侧视频；未使用的视频会自动增加一格。"
+          : "<strong>模板也能放视频：</strong>先选画布格子，再点左侧视频；模板已满时，新导入视频会替换当前格。";
         $("customCount").textContent = `当前 ${state.count} 格 · 还可增加 ${9 - state.count} 格`;
         $("splitVerticalButton").disabled = state.count >= 9;
         $("splitHorizontalButton").disabled = state.count >= 9;
@@ -1444,16 +1454,24 @@
         const valid = loaded.filter(Boolean);
         if (!valid.length) return setStatus("素材无法读取；请使用浏览器可播放的 MP4（H.264/AAC）或常见图片格式", true);
         state.images.push(...valid);
+        const addedVideo = valid.find(isVideo) || null;
+        let placementMessage = "";
         if (!state.customMode && state.images.length >= 2 && state.images.length <= 9 && state.slots.every(slot => !slot)) {
           state.count = state.images.length;
           state.templateIndex = 0;
-          state.slots = Array.from({ length: state.count }, (_, index) => valid[index] ? newSlot(valid[index].id) : null);
+          state.slots = Array.from({ length: state.count }, (_, index) => state.images[index] ? newSlot(state.images[index].id) : null);
           state.selected = 0;
           renderModeControls();
           renderCountButtons();
           renderTemplates();
         } else {
           fillEmptySlots();
+        }
+        if (!state.customMode && addedVideo && !state.slots.some(slot => slot?.imageId === addedVideo.id)) {
+          const target = Math.min(Math.max(0, state.selected), state.slots.length - 1);
+          state.selected = target;
+          state.slots[target] = newSlot(addedVideo.id);
+          placementMessage = `视频已放入模板第 ${target + 1} 格；原图片仍在素材库`;
         }
         renderImageList();
         render();
@@ -1464,7 +1482,7 @@
         if (imageCount) parts.push(`${imageCount} 张图片`);
         if (videoCount) parts.push(`${videoCount} 段视频`);
         if (skippedVideos) parts.push(`已忽略 ${skippedVideos} 段多余视频`);
-        setStatus(`已添加 ${parts.join("，")}`);
+        setStatus(placementMessage || `已添加 ${parts.join("，")}`);
       }
 
       function mutateSelected(fn, message) {
@@ -2145,7 +2163,7 @@
         if (clockTest !== "00:00|01:05|01:01:01") errors.push(`视频时间格式错误：${clockTest}`);
         const mp4MimeType = supportedMp4MimeType();
         if (mp4MimeType && (!mp4MimeType.includes("avc1") || !mp4MimeType.includes("mp4a.40.2"))) errors.push(`MP4 编码格式错误：${mp4MimeType}`);
-        return { pass: errors.length === 0, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, mp4FilenameTest, clockTest, mp4MimeType, errors };
+        return { pass: errors.length === 0, version: APP_VERSION, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, mp4FilenameTest, clockTest, mp4MimeType, errors };
       };
 
       renderImageList();
