@@ -91,8 +91,10 @@
       cursor: grab;
     }
     .thumb:hover { border-color: var(--green); }
-    .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+    .thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
     .thumb-index { position: absolute; right: 4px; bottom: 4px; min-width: 20px; padding: 1px 5px; border-radius: 10px; background: rgb(0 0 0 / .7); font-size: 11px; text-align: center; }
+    .thumb-kind { position: absolute; left: 4px; top: 4px; padding: 2px 6px; border-radius: 5px; background: rgb(15 72 38 / .92); color: #c9f8da; font-size: 10px; font-weight: 700; }
+    .thumb-duration { position: absolute; left: 4px; bottom: 4px; padding: 1px 5px; border-radius: 5px; background: rgb(0 0 0 / .72); font-size: 10px; }
     .empty-list { grid-column: 1 / -1; padding: 24px 8px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); text-align: center; }
     .left-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
     .left-actions button { padding: 9px 8px; }
@@ -127,6 +129,7 @@
       touch-action: none;
     }
     #canvas.dragging { cursor: grabbing; }
+    .app.exporting #canvas { cursor: progress; }
     .stage.panning, .stage.panning #canvas { cursor: grabbing !important; }
     .view-controls {
       position: absolute;
@@ -145,7 +148,7 @@
     .view-percent { min-width: 46px; color: var(--muted); font-size: 12px; text-align: center; }
     .view-fit { color: #aef0c6; }
     .stage.drag-over::after {
-      content: "松开鼠标添加图片";
+      content: "松开鼠标添加图片或视频";
       position: absolute;
       inset: 20px;
       display: grid;
@@ -177,6 +180,14 @@
     .custom-actions button { padding: 10px 7px; }
     .custom-actions .wide { grid-column: 1 / -1; }
     .custom-count { margin: 14px 0 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #171c18; color: var(--muted); text-align: center; }
+    .video-settings { margin-top: 18px; padding: 14px; border: 1px solid #3d654b; border-radius: 9px; background: #17251c; }
+    .video-settings[hidden] { display: none; }
+    .video-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .video-head .panel-title { margin: 0; }
+    .video-play { min-width: 76px; padding: 7px 10px; }
+    .video-time { margin: 10px 0 6px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .video-timeline { width: 100%; accent-color: var(--green); }
+    .video-note { margin: 8px 0 0; color: #b6c9bd; font-size: 11px; }
     .gap-settings { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
     .setting-head, .color-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .setting-head { margin-bottom: 9px; }
@@ -214,9 +225,28 @@
     .tool-button { min-width: 40px; padding: 9px 11px; }
     .zoom-wrap { display: flex; align-items: center; gap: 7px; min-width: 165px; color: var(--muted); }
     #zoom { width: 110px; accent-color: var(--green); }
-    .export-tools { display: grid; grid-template-columns: 1fr; gap: 8px; padding: 0 18px; }
+    .export-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 18px; }
     .export-tools button { padding: 10px 8px; }
     .export-tools .secondary { font-weight: 700; }
+    .export-tools .wide { grid-column: 1 / -1; }
+    .export-progress {
+      position: absolute;
+      left: 50%;
+      top: 18px;
+      z-index: 5;
+      width: min(430px, calc(100% - 36px));
+      transform: translateX(-50%);
+      padding: 13px 14px;
+      border: 1px solid #4d765b;
+      border-radius: 10px;
+      background: rgb(23 33 27 / .97);
+      box-shadow: var(--shadow);
+    }
+    .export-progress[hidden] { display: none; }
+    .export-progress-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .export-progress-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cancel-export { flex: 0 0 auto; padding: 6px 10px; }
+    .export-progress progress { display: block; width: 100%; height: 10px; accent-color: var(--green); }
 
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
@@ -232,6 +262,10 @@
       .template-grid { grid-template-columns: repeat(4, 1fr); }
       .bottombar { grid-template-columns: 190px 1fr; min-height: 112px; }
       .export-tools { grid-column: 1 / -1; padding-bottom: 10px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .upload-button, .primary, .secondary, .tool-button, .count-button, .template-button { transition: none; }
+      button:active { transform: none; }
     }
   </style>
 </head>
@@ -249,33 +283,42 @@
           <option value="1080x1080">正方形</option>
           <option value="1080x1920">竖屏 9:16</option>
           <option value="1920x1080">横屏 16:9</option>
+          <option value="3840x2160">4K 横屏</option>
+          <option value="2160x3840">4K 竖屏</option>
           <option value="1080x1440">竖图 3:4</option>
           <option value="1440x1080">横图 4:3</option>
         </select>
       </div>
-      <div class="privacy">离线运行 · 图片只在本机处理</div>
+      <div class="privacy">离线运行 · 素材只在本机处理</div>
     </header>
 
     <section class="workspace">
-      <aside class="panel left-panel" aria-label="图片管理">
-        <h2 class="panel-title">图片</h2>
-        <label class="upload-button" for="fileInput">＋ 添加多张图片</label>
-        <input id="fileInput" class="sr-only" type="file" accept="image/*" multiple>
-        <p class="drop-tip">也可以把图片拖到中间画布</p>
+      <aside class="panel left-panel" aria-label="素材管理">
+        <h2 class="panel-title">素材</h2>
+        <label class="upload-button" for="fileInput">＋ 添加图片 / 视频</label>
+        <input id="fileInput" class="sr-only" type="file" accept="image/*,video/mp4,video/quicktime,video/webm" multiple>
+        <p class="drop-tip">支持多张图片 + 1 段视频，也可拖入</p>
         <div id="imageList" class="image-list"></div>
         <div class="left-actions">
           <button id="shuffleButton" class="secondary" type="button">随机换位</button>
-          <button id="clearButton" class="secondary danger" type="button">清空图片</button>
+          <button id="clearButton" class="secondary danger" type="button">清空素材</button>
         </div>
       </aside>
 
       <section id="stage" class="stage" aria-label="拼图画布">
         <div class="canvas-shell"><canvas id="canvas" width="1080" height="1080"></canvas></div>
+        <div id="exportProgress" class="export-progress" role="status" aria-live="polite" aria-atomic="true" hidden>
+          <div class="export-progress-head">
+            <span id="exportProgressLabel" class="export-progress-label">正在准备 MP4…</span>
+            <button id="cancelExportButton" class="secondary danger cancel-export" type="button">取消</button>
+          </div>
+          <progress id="exportProgressBar" max="100" value="0" aria-label="MP4 导出进度"></progress>
+        </div>
         <div class="view-controls" aria-label="画布视图">
-          <button id="viewOutButton" type="button" title="缩小画布视图">−</button>
+          <button id="viewOutButton" type="button" title="缩小画布视图" aria-label="缩小画布视图">−</button>
           <span id="viewPercent" class="view-percent">100%</span>
-          <button id="viewInButton" type="button" title="放大画布视图">＋</button>
-          <button id="fitViewButton" class="view-fit" type="button" title="显示完整画布">适应</button>
+          <button id="viewInButton" type="button" title="放大画布视图" aria-label="放大画布视图">＋</button>
+          <button id="fitViewButton" class="view-fit" type="button" title="显示完整画布" aria-label="显示完整画布">适应</button>
         </div>
       </section>
 
@@ -290,9 +333,9 @@
           <div id="templateGrid" class="template-grid"></div>
         </div>
         <div id="customPanel" class="custom-panel" hidden>
-          <p class="custom-tip">进入时按已导入图片数生成格子。选中格子后可继续分割；横竖绿色线可拖动。</p>
+          <p class="custom-tip">进入时按已导入素材数生成格子。选中格子后可继续分割；横竖绿色线可拖动。</p>
           <div class="custom-actions">
-            <button id="autoCustomButton" class="secondary wide" type="button">按图片数自动排版</button>
+            <button id="autoCustomButton" class="secondary wide" type="button">按素材数自动排版</button>
             <button id="splitVerticalButton" class="secondary" type="button">左右分割 ＋1格</button>
             <button id="splitHorizontalButton" class="secondary" type="button">上下分割 ＋1格</button>
             <button id="splitDiagonalButton" class="secondary" type="button">斜线分割 ＋1格</button>
@@ -301,6 +344,15 @@
           </div>
           <p id="customCount" class="custom-count">当前 1 格 · 最多 9 格</p>
         </div>
+        <section id="videoSettings" class="video-settings" aria-label="视频预览" hidden>
+          <div class="video-head">
+            <h2 class="panel-title">视频预览</h2>
+            <button id="videoPlayButton" class="secondary video-play" type="button">播放</button>
+          </div>
+          <div id="videoTime" class="video-time">00:00 / 00:00</div>
+          <input id="videoTimeline" class="video-timeline" type="range" min="0" max="1000" value="0" aria-label="视频进度">
+          <p class="video-note">预览静音；导出 MP4 会保留原视频声音。</p>
+        </section>
         <section class="gap-settings" aria-label="拼图间距设置">
           <div class="setting-head">
             <label class="setting-label" for="gapRange">图片间距</label>
@@ -353,19 +405,20 @@
     </section>
 
     <footer class="bottombar">
-      <div id="status" class="status" role="status" aria-live="polite">添加图片后选择模板</div>
-      <div class="edit-tools" aria-label="图片操作">
-        <button id="undoButton" class="tool-button" type="button" title="撤销（Ctrl+Z）">↶</button>
-        <button id="redoButton" class="tool-button" type="button" title="重做（Ctrl+Y）">↷</button>
-        <button id="rotateLeftButton" class="tool-button" type="button" title="向左旋转">↺</button>
-        <button id="rotateRightButton" class="tool-button" type="button" title="向右旋转">↻</button>
-        <button id="flipXButton" class="tool-button" type="button" title="水平翻转">↔</button>
-        <button id="flipYButton" class="tool-button" type="button" title="垂直翻转">↕</button>
-        <button id="removeButton" class="tool-button danger" type="button" title="移出当前格">⌫</button>
+      <div id="status" class="status" role="status" aria-live="polite">添加素材后选择模板</div>
+      <div class="edit-tools" aria-label="素材操作">
+        <button id="undoButton" class="tool-button" type="button" title="撤销（Ctrl+Z）" aria-label="撤销">↶</button>
+        <button id="redoButton" class="tool-button" type="button" title="重做（Ctrl+Y）" aria-label="重做">↷</button>
+        <button id="rotateLeftButton" class="tool-button" type="button" title="向左旋转" aria-label="向左旋转">↺</button>
+        <button id="rotateRightButton" class="tool-button" type="button" title="向右旋转" aria-label="向右旋转">↻</button>
+        <button id="flipXButton" class="tool-button" type="button" title="水平翻转" aria-label="水平翻转">↔</button>
+        <button id="flipYButton" class="tool-button" type="button" title="垂直翻转" aria-label="垂直翻转">↕</button>
+        <button id="removeButton" class="tool-button danger" type="button" title="移出当前格" aria-label="移出当前格">⌫</button>
         <label class="zoom-wrap" for="zoom"><span>缩放</span><input id="zoom" type="range" min="0.1" max="3" step="0.01" value="1"><span id="zoomValue">100%</span></label>
       </div>
       <div class="export-tools">
         <button id="jpgButton" class="primary" type="button">导出 JPG</button>
+        <button id="mp4Button" class="primary" type="button" hidden>导出 MP4</button>
       </div>
     </footer>
   </main>
@@ -486,6 +539,9 @@
       let spaceHeld = false;
       const view = { zoom: 1, x: 0, y: 0 };
       let statusTimer = 0;
+      let previewLoopGeneration = 0;
+      let exportJob = null;
+      let exportDisabledStates = null;
 
       const cloneSlots = slots => slots.map(slot => slot ? { ...slot } : null);
       const cloneStickers = stickers => stickers.map(sticker => ({ ...sticker }));
@@ -530,7 +586,26 @@
       const selectedSticker = () => state.stickers.find(sticker => sticker.id === state.selectedStickerId) || null;
       const selectedSlot = () => state.selectedStickerId == null && state.selected >= 0 ? state.slots[state.selected] : null;
       const imageById = id => state.images.find(image => image.id === id);
+      const isVideo = image => image?.kind === "video";
+      const mediaWidth = image => isVideo(image) ? image.element.videoWidth : image.element.naturalWidth;
+      const mediaHeight = image => isVideo(image) ? image.element.videoHeight : image.element.naturalHeight;
+      const mediaReady = image => Boolean(image && mediaWidth(image) && mediaHeight(image) && (!isVideo(image) || image.element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA));
+      const activeVideo = () => {
+        const used = new Set(state.slots.filter(Boolean).map(slot => slot.imageId));
+        return state.images.find(image => isVideo(image) && used.has(image.id)) || null;
+      };
       const newSlot = imageId => ({ imageId, zoom: 1, offsetX: 0, offsetY: 0, rotation: 0, flipX: false, flipY: false });
+
+      function formatClock(seconds) {
+        if (!Number.isFinite(seconds) || seconds < 0) return "00:00";
+        const whole = Math.floor(seconds);
+        const hours = Math.floor(whole / 3600);
+        const minutes = Math.floor((whole % 3600) / 60);
+        const secs = whole % 60;
+        return hours
+          ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
+          : `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+      }
 
       const cellPoints = cell => cell.points || [{ x: cell.x0, y: cell.y0 }, { x: cell.x1, y: cell.y0 }, { x: cell.x1, y: cell.y1 }, { x: cell.x0, y: cell.y1 }];
       const signedArea = points => points.reduce((sum, point, index) => {
@@ -690,10 +765,10 @@
       }
 
       function clampOffset(slot, cell, image) {
-        if (!slot || !image || !image.element.complete) return;
+        if (!slot || !mediaReady(image)) return;
         const quarterTurn = Math.abs(slot.rotation / 90) % 2 === 1;
-        const iw = quarterTurn ? image.element.naturalHeight : image.element.naturalWidth;
-        const ih = quarterTurn ? image.element.naturalWidth : image.element.naturalHeight;
+        const iw = quarterTurn ? mediaHeight(image) : mediaWidth(image);
+        const ih = quarterTurn ? mediaWidth(image) : mediaHeight(image);
         const scale = Math.max(cell.width / iw, cell.height / ih) * slot.zoom;
         const maxX = Math.max(0, (iw * scale - cell.width) / 2);
         const maxY = Math.max(0, (ih * scale - cell.height) / 2);
@@ -701,9 +776,13 @@
         slot.offsetY = Math.max(-maxY, Math.min(maxY, slot.offsetY));
       }
 
-      function drawSlot(targetCtx, cell, slot) {
+      function drawSlot(targetCtx, cell, slot, mediaOverrides = null) {
         const image = slot && imageById(slot.imageId);
-        if (!image || !image.element.complete || !image.element.naturalWidth) {
+        const mediaElement = image && (mediaOverrides?.get(image.id) || image.element);
+        const width = mediaElement && (isVideo(image) ? mediaElement.videoWidth : mediaElement.naturalWidth);
+        const height = mediaElement && (isVideo(image) ? mediaElement.videoHeight : mediaElement.naturalHeight);
+        const ready = Boolean(width && height && (!isVideo(image) || mediaElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA));
+        if (!image || !ready) {
           targetCtx.fillStyle = "#313a33";
           targetCtx.beginPath();
           traceCellPath(targetCtx, cell);
@@ -711,10 +790,10 @@
           return;
         }
         clampOffset(slot, cell, image);
-        const img = image.element;
+        const img = mediaElement;
         const quarterTurn = Math.abs(slot.rotation / 90) % 2 === 1;
-        const boundW = quarterTurn ? img.naturalHeight : img.naturalWidth;
-        const boundH = quarterTurn ? img.naturalWidth : img.naturalHeight;
+        const boundW = quarterTurn ? height : width;
+        const boundH = quarterTurn ? width : height;
         const scale = Math.max(cell.width / boundW, cell.height / boundH) * slot.zoom;
 
         targetCtx.save();
@@ -724,7 +803,7 @@
         targetCtx.translate(cell.x + cell.width / 2 + slot.offsetX, cell.y + cell.height / 2 + slot.offsetY);
         targetCtx.scale(slot.flipX ? -1 : 1, slot.flipY ? -1 : 1);
         targetCtx.rotate(slot.rotation * Math.PI / 180);
-        targetCtx.drawImage(img, -img.naturalWidth * scale / 2, -img.naturalHeight * scale / 2, img.naturalWidth * scale, img.naturalHeight * scale);
+        targetCtx.drawImage(img, -width * scale / 2, -height * scale / 2, width * scale, height * scale);
         targetCtx.restore();
         if (cell.borderColor && cell.borderWidth) {
           targetCtx.save();
@@ -834,7 +913,7 @@
         targetCtx.restore();
       }
 
-      function paint(targetCanvas, editing) {
+      function paint(targetCanvas, editing, mediaOverrides = null) {
         const targetCtx = targetCanvas.getContext("2d", { alpha: true });
         targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
         targetCtx.fillStyle = state.background;
@@ -842,7 +921,7 @@
         targetCtx.imageSmoothingEnabled = true;
         targetCtx.imageSmoothingQuality = "high";
         const cells = pixelCells(targetCanvas.width, targetCanvas.height);
-        cells.forEach((cell, index) => drawSlot(targetCtx, cell, state.slots[index]));
+        cells.forEach((cell, index) => drawSlot(targetCtx, cell, state.slots[index], mediaOverrides));
         (currentTemplate().seams || []).forEach(seam => {
           const points = seam.points.map(([x, y]) => ({ x: x * targetCanvas.width, y: y * targetCanvas.height }));
           targetCtx.save();
@@ -904,6 +983,38 @@
         updateControls();
       }
 
+      function paintPreviewFrame() {
+        if (canvas.width !== state.width || canvas.height !== state.height) {
+          canvas.width = state.width;
+          canvas.height = state.height;
+        }
+        paint(canvas, true);
+        applyCanvasView();
+      }
+
+      function startVideoPreviewLoop(video) {
+        const generation = ++previewLoopGeneration;
+        const tick = () => {
+          if (generation !== previewLoopGeneration || video.paused || video.ended) {
+            paintPreviewFrame();
+            syncVideoControls();
+            return;
+          }
+          paintPreviewFrame();
+          syncVideoControls();
+          if (typeof video.requestVideoFrameCallback === "function") video.requestVideoFrameCallback(tick);
+          else requestAnimationFrame(tick);
+        };
+        tick();
+      }
+
+      function stopVideoPreview() {
+        previewLoopGeneration++;
+        state.images.filter(isVideo).forEach(image => image.element.pause());
+        syncVideoControls();
+        paintPreviewFrame();
+      }
+
       function baseViewScale() {
         const rect = stage.getBoundingClientRect();
         return Math.max(.01, Math.min((rect.width - 48) / state.width, (rect.height - 48) / state.height));
@@ -938,6 +1049,26 @@
         syncStickerControls();
         $("undoButton").disabled = historyIndex <= 0;
         $("redoButton").disabled = historyIndex < 0 || historyIndex >= history.length - 1;
+        syncVideoControls();
+      }
+
+      function syncVideoControls() {
+        const image = activeVideo();
+        const panel = $("videoSettings");
+        panel.hidden = !image;
+        $("mp4Button").hidden = !image;
+        $("jpgButton").classList.toggle("wide", !image);
+        if (!image) {
+          state.images.filter(isVideo).forEach(item => item.element.pause());
+          return;
+        }
+        const video = image.element;
+        const duration = Number.isFinite(video.duration) ? video.duration : image.duration || 0;
+        $("videoPlayButton").textContent = video.paused || video.ended ? "播放" : "暂停";
+        $("videoPlayButton").disabled = Boolean(exportJob) || !duration;
+        $("videoTimeline").disabled = Boolean(exportJob) || !duration;
+        $("videoTimeline").value = duration ? Math.round(Math.min(1, video.currentTime / duration) * 1000) : 0;
+        $("videoTime").textContent = `${formatClock(video.currentTime)} / ${formatClock(duration)}`;
       }
 
       function syncStickerControls() {
@@ -1025,7 +1156,7 @@
         if (!state.images.length) {
           const empty = document.createElement("div");
           empty.className = "empty-list";
-          empty.textContent = "还没有图片";
+          empty.textContent = "还没有素材";
           list.append(empty);
           return;
         }
@@ -1035,8 +1166,27 @@
           button.className = "thumb";
           button.draggable = true;
           button.title = `${image.name}：点击填入当前格，或拖到画布`;
-          button.innerHTML = `<img alt=""><span class="thumb-index">${index + 1}</span>`;
-          button.querySelector("img").src = image.url;
+          const preview = document.createElement(isVideo(image) ? "video" : "img");
+          preview.src = image.url;
+          preview.setAttribute("alt", "");
+          if (isVideo(image)) {
+            preview.muted = true;
+            preview.playsInline = true;
+            preview.preload = "metadata";
+          }
+          const number = document.createElement("span");
+          number.className = "thumb-index";
+          number.textContent = index + 1;
+          button.append(preview, number);
+          if (isVideo(image)) {
+            const kind = document.createElement("span");
+            kind.className = "thumb-kind";
+            kind.textContent = "视频";
+            const duration = document.createElement("span");
+            duration.className = "thumb-duration";
+            duration.textContent = formatClock(image.duration);
+            button.append(kind, duration);
+          }
           button.addEventListener("click", () => assignImage(image.id));
           button.addEventListener("dragstart", event => event.dataTransfer.setData("text/x-puzzle-image", String(image.id)));
           list.append(button);
@@ -1079,7 +1229,7 @@
         renderModeControls();
         render();
         pushHistory();
-        setStatus(state.images.length ? `已按 ${Math.min(9, state.images.length)} 张图片生成 ${count} 格` : "已生成 1 个自定义格子");
+        setStatus(state.images.length ? `已按 ${Math.min(9, state.images.length)} 个素材生成 ${count} 格` : "已生成 1 个自定义格子");
       }
 
       function enterCustomMode() {
@@ -1150,7 +1300,7 @@
           button.type = "button";
           button.className = `count-button${state.count === count ? " active" : ""}`;
           button.textContent = count;
-          button.setAttribute("aria-label", `${count} 张图片模板`);
+          button.setAttribute("aria-label", `${count} 格模板`);
           button.addEventListener("click", () => changeCount(count));
           row.append(button);
         }
@@ -1229,6 +1379,7 @@
       }
 
       function assignImage(imageId, cellIndex = state.selected) {
+        stopVideoPreview();
         if (cellIndex < 0) cellIndex = state.slots.findIndex(slot => !slot);
         if (cellIndex < 0) cellIndex = 0;
         if (state.customMode && !state.slots.some(slot => slot?.imageId === imageId)) {
@@ -1244,20 +1395,54 @@
         state.slots[cellIndex] = newSlot(imageId);
         render();
         pushHistory();
-        setStatus(`图片已放入第 ${cellIndex + 1} 格`);
+        const image = imageById(imageId);
+        setStatus(`${isVideo(image) ? "视频" : "图片"}已放入第 ${cellIndex + 1} 格`);
       }
 
       async function addFiles(files) {
-        const imageFiles = [...files].filter(file => file.type.startsWith("image/"));
-        if (!imageFiles.length) return setStatus("请选择 PNG、JPG、WEBP 等图片文件", true);
-        const loaded = await Promise.all(imageFiles.map(file => new Promise(resolve => {
+        if (exportJob) return setStatus("请先等待 MP4 导出完成或取消导出", true);
+        const candidates = [...files].filter(file => file.type.startsWith("image/") || file.type.startsWith("video/"));
+        if (!candidates.length) return setStatus("请选择 PNG、JPG、WEBP 图片或 MP4 视频", true);
+        let videoAvailable = !state.images.some(isVideo);
+        let skippedVideos = 0;
+        const accepted = candidates.filter(file => {
+          if (!file.type.startsWith("video/")) return true;
+          if (!videoAvailable) {
+            skippedVideos++;
+            return false;
+          }
+          videoAvailable = false;
+          return true;
+        });
+        if (!accepted.length && skippedVideos) return setStatus("当前项目最多只能添加 1 段视频；现有视频已保留", true);
+        const loaded = await Promise.all(accepted.map(file => new Promise(resolve => {
           const url = URL.createObjectURL(file);
+          if (file.type.startsWith("video/")) {
+            const element = document.createElement("video");
+            element.preload = "auto";
+            element.muted = true;
+            element.playsInline = true;
+            element.onloadeddata = () => {
+              const duration = element.duration;
+              if (!Number.isFinite(duration) || duration <= 0) {
+                URL.revokeObjectURL(url);
+                return resolve(null);
+              }
+              element.addEventListener("seeked", () => paintPreviewFrame());
+              resolve({ id: nextImageId++, kind: "video", name: file.name, url, element, duration });
+            };
+            element.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+            element.src = url;
+            element.load();
+            return;
+          }
           const element = new Image();
-          element.onload = () => resolve({ id: nextImageId++, name: file.name, url, element });
+          element.onload = () => resolve({ id: nextImageId++, kind: "image", name: file.name, url, element });
           element.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
           element.src = url;
         })));
         const valid = loaded.filter(Boolean);
+        if (!valid.length) return setStatus("素材无法读取；请使用浏览器可播放的 MP4（H.264/AAC）或常见图片格式", true);
         state.images.push(...valid);
         if (!state.customMode && state.images.length >= 2 && state.images.length <= 9 && state.slots.every(slot => !slot)) {
           state.count = state.images.length;
@@ -1273,7 +1458,13 @@
         renderImageList();
         render();
         pushHistory();
-        setStatus(`已添加 ${valid.length} 张图片`);
+        const videoCount = valid.filter(isVideo).length;
+        const imageCount = valid.length - videoCount;
+        const parts = [];
+        if (imageCount) parts.push(`${imageCount} 张图片`);
+        if (videoCount) parts.push(`${videoCount} 段视频`);
+        if (skippedVideos) parts.push(`已忽略 ${skippedVideos} 段多余视频`);
+        setStatus(`已添加 ${parts.join("，")}`);
       }
 
       function mutateSelected(fn, message) {
@@ -1300,8 +1491,9 @@
       }
 
       function clearImages() {
-        if (!state.images.length) return setStatus("当前没有图片");
-        if (!window.confirm("清空已添加的所有图片和编辑记录？原始文件不会被删除。")) return;
+        if (!state.images.length) return setStatus("当前没有素材");
+        if (!window.confirm("清空已添加的所有图片、视频和编辑记录？原始文件不会被删除。")) return;
+        stopVideoPreview();
         state.images.forEach(image => URL.revokeObjectURL(image.url));
         state.images = [];
         state.slots = Array.from({ length: state.count }, () => null);
@@ -1311,7 +1503,7 @@
         history = [];
         historyIndex = -1;
         pushHistory();
-        setStatus("图片已清空");
+        setStatus("素材已清空");
       }
 
       function applySize(width, height) {
@@ -1339,12 +1531,12 @@
         try { localStorage.setItem("puzzle-canvas-size-v1", JSON.stringify({ width: state.width, height: state.height })); } catch {}
       }
 
-      function formatExportFilename(date, number) {
+      function formatExportFilename(date, number, extension = "jpg") {
         const day = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
-        return `拼图-${day}-${String(number).padStart(3, "0")}.jpg`;
+        return `拼图-${day}-${String(number).padStart(3, "0")}.${extension}`;
       }
 
-      function nextExportFilename(now = new Date()) {
+      function nextExportFilename(extension = "jpg", now = new Date()) {
         const day = formatExportFilename(now, 1).slice(3, 11);
         try {
           const saved = JSON.parse(localStorage.getItem("puzzle-export-sequence-v1"));
@@ -1352,7 +1544,7 @@
         } catch {}
         exportSequence = { date: day, number: exportSequence.date === day ? exportSequence.number + 1 : 1 };
         try { localStorage.setItem("puzzle-export-sequence-v1", JSON.stringify(exportSequence)); } catch {}
-        return formatExportFilename(now, exportSequence.number);
+        return formatExportFilename(now, exportSequence.number, extension);
       }
 
       function exportImage() {
@@ -1369,12 +1561,195 @@
           const url = URL.createObjectURL(blob);
           const link = document.createElement("a");
           link.href = url;
-          const filename = nextExportFilename();
+          const filename = nextExportFilename("jpg");
           link.download = filename;
           link.click();
           setTimeout(() => URL.revokeObjectURL(url), 1000);
           setStatus(`已导出 ${filename}`);
         }, "image/jpeg", .94);
+      }
+
+      function supportedMp4MimeType() {
+        if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") return "";
+        const candidates = [
+          "video/mp4;codecs=avc1,mp4a.40.2",
+          "video/mp4;codecs=avc1.640033,mp4a.40.2",
+          "video/mp4;codecs=avc1.4d0033,mp4a.40.2",
+          "video/mp4;codecs=avc1.42e033,mp4a.40.2",
+          "video/mp4;codecs=avc1.64002a,mp4a.40.2",
+          "video/mp4;codecs=avc1.4d002a,mp4a.40.2",
+          "video/mp4;codecs=avc1.42e02a,mp4a.40.2"
+        ];
+        return candidates.find(type => MediaRecorder.isTypeSupported(type)) || "";
+      }
+
+      function videoBitrate(width, height) {
+        return Math.min(50_000_000, Math.max(8_000_000, Math.round(width * height * 5)));
+      }
+
+      function setExportProgress(current, duration, message = "") {
+        const percent = duration ? Math.min(100, Math.max(0, current / duration * 100)) : 0;
+        $("exportProgressBar").value = percent;
+        $("exportProgressLabel").textContent = message || `正在导出 ${formatClock(current)} / ${formatClock(duration)} · ${Math.round(percent)}%`;
+      }
+
+      function setExportBusy(busy) {
+        $("exportProgress").hidden = !busy;
+        document.querySelector(".app").classList.toggle("exporting", busy);
+        if (busy) {
+          exportDisabledStates = new Map();
+          document.querySelectorAll("button, input, select").forEach(element => {
+            exportDisabledStates.set(element, element.disabled);
+            if (element !== $("cancelExportButton")) element.disabled = true;
+          });
+          $("cancelExportButton").disabled = false;
+          $("mp4Button").setAttribute("aria-busy", "true");
+          return;
+        }
+        exportDisabledStates?.forEach((disabled, element) => { element.disabled = disabled; });
+        exportDisabledStates = null;
+        $("mp4Button").removeAttribute("aria-busy");
+        renderModeControls();
+        updateControls();
+      }
+
+      function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      }
+
+      async function exportMp4() {
+        if (exportJob) return;
+        if (state.slots.some(slot => !slot)) return setStatus("请先填满所有格子再导出", true);
+        const image = activeVideo();
+        if (!image) return setStatus("请先把视频放入一个格子", true);
+        const mimeType = supportedMp4MimeType();
+        if (!mimeType) return setStatus("这台电脑的浏览器未提供 H.264/AAC MP4 编码；请更新 Edge/Chrome 和显卡驱动", true);
+        if (!HTMLCanvasElement.prototype.captureStream) return setStatus("当前浏览器缺少画布录制能力；请更新 Edge 或 Chrome", true);
+
+        stopVideoPreview();
+        const exportVideo = document.createElement("video");
+        let finishPlayback = null;
+        const job = {
+          canceled: false,
+          cancel: () => {
+            if (job.canceled) return;
+            job.canceled = true;
+            setExportProgress(exportVideo.currentTime || 0, image.duration, "正在取消导出…");
+            exportVideo.pause();
+            finishPlayback?.();
+          }
+        };
+        exportJob = job;
+        setExportBusy(true);
+        setExportProgress(0, image.duration, "正在准备 MP4…");
+
+        let recorder = null;
+        let outputStream = null;
+        let audioContext = null;
+        let animationFrame = 0;
+        let renderedFrames = 0;
+        exportVideo.preload = "auto";
+        exportVideo.playsInline = true;
+        exportVideo.src = image.url;
+
+        try {
+          await new Promise((resolve, reject) => {
+            exportVideo.onloadeddata = resolve;
+            exportVideo.onerror = () => reject(new Error("无法读取导出视频"));
+            exportVideo.load();
+          });
+          if (job.canceled) throw new DOMException("已取消", "AbortError");
+          const duration = exportVideo.duration;
+          if (!Number.isFinite(duration) || duration <= 0) throw new Error("视频时长无效");
+
+          const output = document.createElement("canvas");
+          output.width = state.width + state.width % 2;
+          output.height = state.height + state.height % 2;
+          const overrides = new Map([[image.id, exportVideo]]);
+          paint(output, false, overrides);
+          outputStream = output.captureStream(30);
+          const videoTrack = outputStream.getVideoTracks()[0];
+          if (videoTrack) videoTrack.contentHint = "detail";
+
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextClass) throw new Error("当前浏览器不支持音轨导出");
+          audioContext = new AudioContextClass();
+          const source = audioContext.createMediaElementSource(exportVideo);
+          const destination = audioContext.createMediaStreamDestination();
+          source.connect(destination);
+          destination.stream.getAudioTracks().forEach(track => outputStream.addTrack(track));
+          await audioContext.resume();
+          if (job.canceled) throw new DOMException("已取消", "AbortError");
+
+          const options = {
+            mimeType,
+            videoBitsPerSecond: videoBitrate(output.width, output.height),
+            audioBitsPerSecond: 192_000
+          };
+          recorder = new MediaRecorder(outputStream, options);
+          const chunks = [];
+          const stopped = new Promise((resolve, reject) => {
+            recorder.ondataavailable = event => { if (event.data?.size) chunks.push(event.data); };
+            recorder.onerror = event => reject(event.error || new Error("MP4 编码失败"));
+            recorder.onstop = resolve;
+          });
+          const playbackDone = new Promise((resolve, reject) => {
+            finishPlayback = resolve;
+            exportVideo.onended = resolve;
+            exportVideo.onerror = () => reject(new Error("视频播放中断"));
+          });
+          let lastProgressAt = 0;
+          const drawFrame = timestamp => {
+            paint(output, false, overrides);
+            renderedFrames++;
+            if (timestamp - lastProgressAt >= 250) {
+              setExportProgress(exportVideo.currentTime, duration);
+              lastProgressAt = timestamp;
+            }
+            if (!job.canceled && !exportVideo.ended) animationFrame = requestAnimationFrame(drawFrame);
+          };
+
+          recorder.start(1000);
+          exportVideo.currentTime = 0;
+          await exportVideo.play();
+          animationFrame = requestAnimationFrame(drawFrame);
+          await playbackDone;
+          cancelAnimationFrame(animationFrame);
+          paint(output, false, overrides);
+          if (recorder.state !== "inactive") recorder.stop();
+          await stopped;
+
+          if (!job.canceled) {
+            const blob = new Blob(chunks, { type: recorder.mimeType || mimeType });
+            if (!blob.size) throw new Error("MP4 文件为空");
+            const filename = nextExportFilename("mp4");
+            downloadBlob(blob, filename);
+            const renderedFps = renderedFrames / duration;
+            if (renderedFps < 24) setStatus(`已导出 ${filename}，但实时绘制约 ${Math.round(renderedFps)}fps；建议关闭其他程序或降低画布尺寸`, true);
+            else setStatus(`已导出 ${filename}`);
+          } else {
+            setStatus("已取消 MP4 导出");
+          }
+        } catch (error) {
+          if (recorder?.state && recorder.state !== "inactive") recorder.stop();
+          if (job.canceled || error?.name === "AbortError") setStatus("已取消 MP4 导出");
+          else setStatus(`MP4 导出失败：${error.message || error}`, true);
+        } finally {
+          cancelAnimationFrame(animationFrame);
+          exportVideo.pause();
+          exportVideo.removeAttribute("src");
+          exportVideo.load();
+          outputStream?.getTracks().forEach(track => track.stop());
+          if (audioContext && audioContext.state !== "closed") await audioContext.close().catch(() => {});
+          exportJob = null;
+          setExportBusy(false);
+          paintPreviewFrame();
+        }
       }
 
       function eventPoint(event) {
@@ -1453,6 +1828,7 @@
       }
 
       canvas.addEventListener("pointerdown", event => {
+        if (exportJob) return;
         if (event.button !== 0 || spaceHeld) return;
         const point = eventPoint(event);
         const sticker = stickerAt(point);
@@ -1483,6 +1859,7 @@
       });
 
       canvas.addEventListener("pointermove", event => {
+        if (exportJob) return;
         const point = eventPoint(event);
         if (!drag) {
           const divider = dividerAt(point);
@@ -1526,6 +1903,7 @@
       });
 
       canvas.addEventListener("wheel", event => {
+        if (exportJob) return;
         if (event.ctrlKey) return;
         const sticker = selectedSticker();
         if (sticker) {
@@ -1549,6 +1927,7 @@
       canvas.addEventListener("dragover", event => event.preventDefault());
       canvas.addEventListener("drop", event => {
         event.preventDefault();
+        if (exportJob) return;
         const imageId = Number(event.dataTransfer.getData("text/x-puzzle-image"));
         const point = eventPoint(event);
         const index = cellAt(point);
@@ -1626,12 +2005,43 @@
       $("undoButton").addEventListener("click", () => { if (historyIndex > 0) restore(history[--historyIndex]); });
       $("redoButton").addEventListener("click", () => { if (historyIndex < history.length - 1) restore(history[++historyIndex]); });
       $("jpgButton").addEventListener("click", exportImage);
+      $("mp4Button").addEventListener("click", exportMp4);
+      $("cancelExportButton").addEventListener("click", () => exportJob?.cancel?.());
+      $("videoPlayButton").addEventListener("click", async () => {
+        const image = activeVideo();
+        if (!image) return;
+        const video = image.element;
+        if (!video.paused && !video.ended) {
+          video.pause();
+          previewLoopGeneration++;
+          syncVideoControls();
+          paintPreviewFrame();
+          return;
+        }
+        if (video.ended || video.currentTime >= video.duration) video.currentTime = 0;
+        try {
+          await video.play();
+          startVideoPreviewLoop(video);
+          syncVideoControls();
+        } catch (error) {
+          setStatus(`无法播放视频：${error.message || error}`, true);
+        }
+      });
+      $("videoTimeline").addEventListener("input", event => {
+        const image = activeVideo();
+        if (!image || !Number.isFinite(image.element.duration)) return;
+        image.element.pause();
+        previewLoopGeneration++;
+        image.element.currentTime = Number(event.target.value) / 1000 * image.element.duration;
+        syncVideoControls();
+      });
       $("sizePreset").addEventListener("change", event => {
         const [width, height] = event.target.value.split("x").map(Number);
         applySize(width, height);
       });
       [$("canvasWidth"), $("canvasHeight")].forEach(input => input.addEventListener("change", () => applySize($("canvasWidth").value, $("canvasHeight").value)));
       document.addEventListener("keydown", event => {
+        if (exportJob) return;
         if (event.code === "Space" && document.activeElement?.tagName !== "INPUT") {
           spaceHeld = true;
           event.preventDefault();
@@ -1729,7 +2139,13 @@
         });
         const filenameTest = formatExportFilename(new Date(2026, 8, 4), 7);
         if (filenameTest !== "拼图-20260904-007.jpg") errors.push(`导出命名错误：${filenameTest}`);
-        return { pass: errors.length === 0, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, errors };
+        const mp4FilenameTest = formatExportFilename(new Date(2026, 8, 4), 8, "mp4");
+        if (mp4FilenameTest !== "拼图-20260904-008.mp4") errors.push(`MP4 导出命名错误：${mp4FilenameTest}`);
+        const clockTest = [formatClock(0), formatClock(65), formatClock(3661)].join("|");
+        if (clockTest !== "00:00|01:05|01:01:01") errors.push(`视频时间格式错误：${clockTest}`);
+        const mp4MimeType = supportedMp4MimeType();
+        if (mp4MimeType && (!mp4MimeType.includes("avc1") || !mp4MimeType.includes("mp4a.40.2"))) errors.push(`MP4 编码格式错误：${mp4MimeType}`);
+        return { pass: errors.length === 0, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, mp4FilenameTest, clockTest, mp4MimeType, errors };
       };
 
       renderImageList();
