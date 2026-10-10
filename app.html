@@ -357,9 +357,9 @@
           <div id="templateGrid" class="template-grid"></div>
         </div>
         <div id="customPanel" class="custom-panel" hidden>
-          <p class="custom-tip">进入时按已导入素材数生成格子。选中格子后可继续分割；横竖绿色线可拖动。</p>
+          <p id="customSmartNote" class="custom-tip">根据画布与素材横竖比例生成可编辑格子；之后仍可继续分割和拖动绿色线。</p>
           <div class="custom-actions">
-            <button id="autoCustomButton" class="secondary wide" type="button">按素材数自动排版</button>
+            <button id="autoCustomButton" class="secondary smart-layout-button wide" type="button" aria-describedby="customSmartNote">智能自定义排版</button>
             <button id="splitVerticalButton" class="secondary" type="button">左右分割 ＋1格</button>
             <button id="splitHorizontalButton" class="secondary" type="button">上下分割 ＋1格</button>
             <button id="splitDiagonalButton" class="secondary" type="button">斜线分割 ＋1格</button>
@@ -375,7 +375,7 @@
           </div>
           <div id="videoTime" class="video-time">00:00 / 00:00</div>
           <input id="videoTimeline" class="video-timeline" type="range" min="0" max="1000" value="0" aria-label="视频进度">
-          <p class="video-note">预览静音；导出 MP4 会保留原视频声音。</p>
+          <p class="video-note">预览静音；“导出视频”生成带原声 MP4。</p>
         </section>
         <section class="gap-settings" aria-label="拼图间距设置">
           <div class="setting-head">
@@ -441,8 +441,8 @@
         <label class="zoom-wrap" for="zoom"><span>缩放</span><input id="zoom" type="range" min="0.1" max="3" step="0.01" value="1"><span id="zoomValue">100%</span></label>
       </div>
       <div class="export-tools">
-        <button id="jpgButton" class="primary" type="button">导出 JPG</button>
-        <button id="mp4Button" class="primary" type="button" hidden>导出 MP4</button>
+        <button id="jpgButton" class="primary" type="button" title="导出 JPG 图片">导出图片</button>
+        <button id="mp4Button" class="primary" type="button" title="导出 MP4 视频" hidden>导出视频</button>
       </div>
     </footer>
   </main>
@@ -451,7 +451,7 @@
     (() => {
       "use strict";
 
-      const APP_VERSION = "1.3.0";
+      const APP_VERSION = "1.4.0";
       const R = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
       const P = coords => {
         const points = coords.map(([x, y]) => ({ x, y }));
@@ -1256,20 +1256,90 @@
         };
       }
 
+      function partitionTemplateCells(cells, indices = null, bounds = R(0, 0, 1, 1)) {
+        const selected = indices || cells.map((_, index) => index);
+        if (selected.length === 1) return { type: "leaf", cellIndex: selected[0] };
+        const epsilon = 1e-9;
+        const candidates = [];
+        const addCuts = (direction, startKey, endKey, min, max) => {
+          const cuts = [...new Set(selected.flatMap(index => [cells[index][startKey], cells[index][endKey]]))]
+            .filter(value => value > min + epsilon && value < max - epsilon);
+          cuts.forEach(cut => {
+            const first = selected.filter(index => cells[index][endKey] <= cut + epsilon);
+            const second = selected.filter(index => cells[index][startKey] >= cut - epsilon);
+            if (!first.length || !second.length || first.length + second.length !== selected.length) return;
+            candidates.push({
+              direction, cut, first, second,
+              balance: Math.abs(first.length - second.length),
+              centerDistance: Math.abs((cut - min) / (max - min) - .5)
+            });
+          });
+        };
+        addCuts("vertical", "x0", "x1", bounds.x0, bounds.x1);
+        addCuts("horizontal", "y0", "y1", bounds.y0, bounds.y1);
+        candidates.sort((a, b) => a.balance - b.balance || a.centerDistance - b.centerDistance);
+        for (const candidate of candidates) {
+          const ratio = candidate.direction === "vertical"
+            ? (candidate.cut - bounds.x0) / (bounds.x1 - bounds.x0)
+            : (candidate.cut - bounds.y0) / (bounds.y1 - bounds.y0);
+          const firstBounds = candidate.direction === "vertical" ? { ...bounds, x1: candidate.cut } : { ...bounds, y1: candidate.cut };
+          const secondBounds = candidate.direction === "vertical" ? { ...bounds, x0: candidate.cut } : { ...bounds, y0: candidate.cut };
+          const first = partitionTemplateCells(cells, candidate.first, firstBounds);
+          const second = partitionTemplateCells(cells, candidate.second, secondBounds);
+          if (first && second) return { type: "split", direction: candidate.direction, ratio, first, second };
+        }
+        return null;
+      }
+
+      function instantiateCustomPartition(spec, idFactory = () => nextLeafId++) {
+        const leafIds = new Map();
+        const walk = node => {
+          if (node.type === "leaf") {
+            const id = idFactory();
+            leafIds.set(node.cellIndex, id);
+            return { type: "leaf", id };
+          }
+          return { type: "split", direction: node.direction, ratio: node.ratio, first: walk(node.first), second: walk(node.second) };
+        };
+        return { root: walk(spec), leafIds };
+      }
+
+      function smartCustomPlan(mediaAspects, width = state.width, height = state.height) {
+        return smartTemplatePlan(mediaAspects, width, height, ({ template }) => Boolean(partitionTemplateCells(template.cells)));
+      }
+
       function autoCustomLayout() {
-        const existing = state.slots.filter(Boolean);
-        const used = new Set(existing.map(slot => slot.imageId));
-        const available = state.images.filter(image => !used.has(image.id)).map(image => newSlot(image.id));
-        const count = Math.max(1, Math.min(9, state.images.length || existing.length || 1));
-        state.customRoot = buildAutoCustom(count);
-        state.count = count;
-        state.slots = [...existing, ...available].slice(0, count);
-        while (state.slots.length < count) state.slots.push(null);
+        const media = state.images.slice(0, 9);
+        const count = Math.max(1, media.length || 1);
+        if (count > 1) {
+          const mediaAspects = media.map(image => mediaWidth(image) / mediaHeight(image));
+          if (mediaAspects.some(aspect => !Number.isFinite(aspect) || aspect <= 0)) return setStatus("有素材尺寸尚未读取完成，请稍后重试", true);
+          const plan = smartCustomPlan(mediaAspects);
+          const partition = plan && partitionTemplateCells(plan.template.cells);
+          if (!plan || !partition) return setStatus("暂时无法生成智能自定义排版", true);
+          const { root, leafIds } = instantiateCustomPartition(partition);
+          const mediaByLeaf = new Map(plan.assignment.map((mediaIndex, cellIndex) => [leafIds.get(cellIndex), mediaIndex]));
+          stopVideoPreview();
+          state.customRoot = root;
+          state.count = count;
+          state.slots = customLayout(root).cells.map(cell => newSlot(media[mediaByLeaf.get(cell.leafId)].id));
+          state.selectedStickerId = null;
+          state.selected = 0;
+          renderModeControls();
+          render();
+          pushHistory();
+          const limited = state.images.length > 9 ? " · 已使用前 9 个素材" : "";
+          setStatus(`智能自定义排版完成：${plan.template.name} · 已按素材横竖比例安排${limited}`);
+          return;
+        }
+        state.customRoot = buildAutoCustom(1);
+        state.count = 1;
+        state.slots = [media[0] ? newSlot(media[0].id) : null];
         state.selected = 0;
         renderModeControls();
         render();
         pushHistory();
-        setStatus(state.images.length ? `已按 ${Math.min(9, state.images.length)} 个素材生成 ${count} 格` : "已生成 1 个自定义格子");
+        setStatus(media.length ? "已生成 1 个自定义格子" : "已生成空白自定义格子；添加素材后可再次智能排版");
       }
 
       function enterCustomMode() {
@@ -1411,8 +1481,9 @@
         return count;
       }
 
-      function smartTemplatePlan(mediaAspects, width = state.width, height = state.height) {
-        const allTemplates = (TEMPLATES[mediaAspects.length] || []).map((template, templateIndex) => ({ template, templateIndex }));
+      function smartTemplatePlan(mediaAspects, width = state.width, height = state.height, candidateFilter = null) {
+        let allTemplates = (TEMPLATES[mediaAspects.length] || []).map((template, templateIndex) => ({ template, templateIndex }));
+        if (candidateFilter) allTemplates = allTemplates.filter(candidateFilter);
         const regularTemplates = allTemplates.filter(({ template }) => !template.overlap && !template.seams && template.cells.every(cell => !cell.points && cell.shape !== "ellipse"));
         const templates = regularTemplates.length ? regularTemplates : allTemplates;
         let best = null;
@@ -2447,17 +2518,43 @@
         const portraitPlan = smartTemplatePlan([9 / 16, 3 / 4], 1080, 1080);
         const wideCanvasPlan = smartTemplatePlan([16 / 9, 4 / 3], 1920, 1080);
         const twoWidePlan = smartTemplatePlan([16 / 9, 7 / 4], 1920, 1080);
+        const customLandscapePlan = smartCustomPlan([16 / 9, 4 / 3], 1080, 1080);
+        const customPortraitPlan = smartCustomPlan([9 / 16, 3 / 4], 1080, 1080);
         if (landscapePlan?.template.name !== "上下") errors.push(`横图智能排版错误：${landscapePlan?.template.name || "无"}`);
         if (portraitPlan?.template.name !== "左右") errors.push(`竖图智能排版错误：${portraitPlan?.template.name || "无"}`);
         if (wideCanvasPlan?.template.name !== "左右") errors.push(`横画布智能排版错误：${wideCanvasPlan?.template.name || "无"}`);
         if (twoWidePlan?.template.name !== "左右") errors.push(`双横图智能排版错误：${twoWidePlan?.template.name || "无"}`);
+        if (customLandscapePlan?.template.name !== "上下") errors.push(`自定义横图智能排版错误：${customLandscapePlan?.template.name || "无"}`);
+        if (customPortraitPlan?.template.name !== "左右") errors.push(`自定义竖图智能排版错误：${customPortraitPlan?.template.name || "无"}`);
+        const partitionSpec = customLandscapePlan && partitionTemplateCells(customLandscapePlan.template.cells);
+        let partitionLeafId = 200;
+        const partitionInstance = partitionSpec && instantiateCustomPartition(partitionSpec, () => partitionLeafId++);
+        const partitionLayout = partitionInstance && customLayout(partitionInstance.root);
+        if (!partitionLayout || partitionLayout.cells.length !== 2 || partitionLayout.dividers[0]?.direction !== "horizontal") errors.push("智能模板转自定义布局错误");
+        const customPlanCoverage = [];
+        for (let count = 2; count <= 9; count++) {
+          const aspects = Array.from({ length: count }, (_, index) => index % 3 === 0 ? 16 / 9 : index % 3 === 1 ? 3 / 4 : 1);
+          const plan = smartCustomPlan(aspects, 1080, 1080);
+          const spec = plan && partitionTemplateCells(plan.template.cells);
+          let leafId = 300 + count * 20;
+          const instance = spec && instantiateCustomPartition(spec, () => leafId++);
+          const layout = instance && customLayout(instance.root);
+          let matches = Boolean(layout && layout.cells.length === count);
+          instance?.leafIds.forEach((id, cellIndex) => {
+            const actual = layout?.cells.find(cell => cell.leafId === id);
+            const expected = plan.template.cells[cellIndex];
+            if (!actual || ["x0", "y0", "x1", "y1"].some(key => Math.abs(actual[key] - expected[key]) > 1e-9)) matches = false;
+          });
+          if (!matches) errors.push(`${count} 格智能自定义布局转换错误`);
+          customPlanCoverage.push(plan?.template.name || "无");
+        }
         const enhancement2x = enhancementDimensions(800, 600, 2.5);
         const enhancementEnough = enhancementDimensions(1600, 1200, 1);
         const enhancementCapped = enhancementDimensions(4000, 3000, 2);
         if (enhancement2x?.width !== 1600 || enhancement2x?.height !== 1200) errors.push("高清增强 2 倍尺寸错误");
         if (enhancementEnough !== null) errors.push("无需放大时不应触发高清增强");
         if (!enhancementCapped || enhancementCapped.width * enhancementCapped.height > 16_000_000) errors.push("高清增强像素上限错误");
-        return { pass: errors.length === 0, version: APP_VERSION, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, mp4FilenameTest, clockTest, mp4MimeType, smartLayout: { landscapes: landscapePlan?.template.name, portraits: portraitPlan?.template.name, wideCanvas: wideCanvasPlan?.template.name, twoWide: twoWidePlan?.template.name }, enhancement: { twoX: enhancement2x, enough: enhancementEnough, capped: enhancementCapped }, errors };
+        return { pass: errors.length === 0, version: APP_VERSION, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, mp4FilenameTest, clockTest, mp4MimeType, smartLayout: { landscapes: landscapePlan?.template.name, portraits: portraitPlan?.template.name, wideCanvas: wideCanvasPlan?.template.name, twoWide: twoWidePlan?.template.name, customLandscapes: customLandscapePlan?.template.name, customPortraits: customPortraitPlan?.template.name, customDivider: partitionLayout?.dividers[0]?.direction, customPlanCoverage }, enhancement: { twoX: enhancement2x, enough: enhancementEnough, capped: enhancementCapped }, errors };
       };
 
       renderImageList();
