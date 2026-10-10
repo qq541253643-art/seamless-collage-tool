@@ -11,14 +11,19 @@ $cacheBuster = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $tempDir = Join-Path ([IO.Path]::GetTempPath()) ('seamless-collage-' + [Guid]::NewGuid().ToString('N'))
 $appName = -join [char[]](0x65E0, 0x7F1D, 0x62FC, 0x56FE, 0x5DE5, 0x5177)
 
-function Get-RemoteFile([string]$Name, [string]$Destination) {
-  $encodedName = [Uri]::EscapeDataString($Name)
+function Get-RepositorySnapshot {
   $encodedBranch = [Uri]::EscapeDataString($Branch)
-  $uri = "https://raw.githubusercontent.com/$Repository/$encodedBranch/$encodedName`?t=$cacheBuster"
-  Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 -Headers @{ 'User-Agent' = 'Seamless-Collage-Installer' } -Uri $uri -OutFile $Destination
-  if (-not (Test-Path -LiteralPath $Destination) -or (Get-Item -LiteralPath $Destination).Length -eq 0) {
-    throw "GitHub returned no content for: $Name"
+  $uri = "https://codeload.github.com/$Repository/zip/refs/heads/$encodedBranch`?t=$cacheBuster"
+  $archivePath = Join-Path $tempDir 'repository.zip'
+  $extractDir = Join-Path $tempDir 'repository'
+  Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Headers @{ 'User-Agent' = 'Seamless-Collage-Installer' } -Uri $uri -OutFile $archivePath
+  if (-not (Test-Path -LiteralPath $archivePath) -or (Get-Item -LiteralPath $archivePath).Length -eq 0) {
+    throw 'GitHub returned an empty repository snapshot.'
   }
+  Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDir -Force
+  $snapshot = Get-ChildItem -LiteralPath $extractDir -Directory | Select-Object -First 1
+  if ($null -eq $snapshot) { throw 'The downloaded repository snapshot could not be opened.' }
+  return $snapshot.FullName
 }
 
 try {
@@ -26,8 +31,8 @@ try {
   New-Item -ItemType Directory -Path $DesktopDir -Force | Out-Null
   New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
-  $manifestPath = Join-Path $tempDir 'manifest.json'
-  Get-RemoteFile 'manifest.json' $manifestPath
+  $snapshotDir = Get-RepositorySnapshot
+  $manifestPath = Join-Path $snapshotDir 'manifest.json'
   $manifest = [IO.File]::ReadAllText($manifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
 
   foreach ($file in $manifest.files) {
@@ -35,13 +40,13 @@ try {
     if ([string]::IsNullOrWhiteSpace($name) -or [IO.Path]::GetFileName($name) -ne $name) {
       throw "Invalid file name in update manifest: $name"
     }
-    $downloadPath = Join-Path $tempDir $name
-    Get-RemoteFile $name $downloadPath
-    $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $downloadPath).Hash
+    $sourcePath = Join-Path $snapshotDir $name
+    if (-not (Test-Path -LiteralPath $sourcePath)) { throw "File is missing from repository snapshot: $name" }
+    $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourcePath).Hash
     if ($actualHash -ne ([string]$file.sha256).ToUpperInvariant()) {
       throw "File verification failed: $name"
     }
-    Move-Item -LiteralPath $downloadPath -Destination (Join-Path $InstallDir $name) -Force
+    Move-Item -LiteralPath $sourcePath -Destination (Join-Path $InstallDir $name) -Force
   }
 
   $shortcutPath = Join-Path $DesktopDir ($appName + '.lnk')
