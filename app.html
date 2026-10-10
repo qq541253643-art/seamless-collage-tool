@@ -171,6 +171,10 @@
     .layout-tab.active { border-color: var(--green); background: #194d2d; color: #aef0c6; }
     .layout-support-note { margin: -5px 0 14px; padding: 9px 10px; border: 1px solid #3d654b; border-radius: 8px; background: #17251c; color: #c9ded0; font-size: 11px; }
     .layout-support-note strong { color: #7be7a5; }
+    .smart-layout-control { margin-bottom: 14px; }
+    .smart-layout-button { width: 100%; padding: 10px 12px; border-color: #4f8e65; background: #1b4b2d; color: #baf3ce; font-weight: 700; }
+    .smart-layout-button:hover { border-color: #69d18e; background: #235d39; }
+    .smart-layout-note { margin: 6px 2px 0; color: var(--muted); font-size: 12px; }
     .template-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .template-button { padding: 7px; border: 2px solid transparent; background: #171c18; }
     .template-button:hover { border-color: #66746a; }
@@ -333,6 +337,10 @@
         </div>
         <p id="layoutSupportNote" class="layout-support-note"><strong>模板也能放视频：</strong>先选画布格子，再点左侧视频；模板已满时，新导入视频会替换当前格。</p>
         <div id="templatePanel" class="template-panel">
+          <div class="smart-layout-control">
+            <button id="smartLayoutButton" class="secondary smart-layout-button" type="button" aria-describedby="smartLayoutNote">智能排版</button>
+            <p id="smartLayoutNote" class="smart-layout-note">导入 2～9 个素材后，按横竖比例自动选择模板和位置，尽量减少裁切。</p>
+          </div>
           <div id="countRow" class="count-row" aria-label="图片数量"></div>
           <div id="templateGrid" class="template-grid"></div>
         </div>
@@ -431,7 +439,7 @@
     (() => {
       "use strict";
 
-      const APP_VERSION = "1.1.2";
+      const APP_VERSION = "1.2.0";
       const R = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
       const P = coords => {
         const points = coords.map(([x, y]) => ({ x, y }));
@@ -1056,6 +1064,7 @@
         syncStickerControls();
         $("undoButton").disabled = historyIndex <= 0;
         $("redoButton").disabled = historyIndex < 0 || historyIndex >= history.length - 1;
+        $("smartLayoutButton").disabled = state.images.length < 2 || Boolean(exportJob);
         syncVideoControls();
       }
 
@@ -1370,6 +1379,86 @@
         const used = new Set(state.slots.filter(Boolean).map(slot => slot.imageId));
         const available = state.images.filter(image => !used.has(image.id));
         state.slots = state.slots.map(slot => slot || (available.length ? newSlot(available.shift().id) : null));
+      }
+
+      function bitCount(value) {
+        let count = 0;
+        while (value) {
+          value &= value - 1;
+          count++;
+        }
+        return count;
+      }
+
+      function smartTemplatePlan(mediaAspects, width = state.width, height = state.height) {
+        const allTemplates = (TEMPLATES[mediaAspects.length] || []).map((template, templateIndex) => ({ template, templateIndex }));
+        const regularTemplates = allTemplates.filter(({ template }) => !template.overlap && !template.seams && template.cells.every(cell => !cell.points && cell.shape !== "ellipse"));
+        const templates = regularTemplates.length ? regularTemplates : allTemplates;
+        let best = null;
+        templates.forEach(({ template, templateIndex }) => {
+          const metrics = template.cells.map(cell => {
+            const cellWidth = Math.max(1, (cell.x1 - cell.x0) * width);
+            const cellHeight = Math.max(1, (cell.y1 - cell.y0) * height);
+            const area = cell.shape === "ellipse"
+              ? Math.PI * cellWidth * cellHeight / 4
+              : polygonArea(cellPoints(cell)) * width * height;
+            return { aspect: cellWidth / cellHeight, area };
+          });
+          const totalArea = metrics.reduce((sum, metric) => sum + metric.area, 0) || 1;
+          const size = 1 << mediaAspects.length;
+          const costs = Array(size).fill(Infinity);
+          const orders = Array(size).fill(null);
+          costs[0] = 0;
+          orders[0] = [];
+          for (let mask = 0; mask < size; mask++) {
+            if (!Number.isFinite(costs[mask])) continue;
+            const cellIndex = bitCount(mask);
+            if (cellIndex >= metrics.length) continue;
+            for (let mediaIndex = 0; mediaIndex < mediaAspects.length; mediaIndex++) {
+              const bit = 1 << mediaIndex;
+              if (mask & bit) continue;
+              const retention = Math.max(.001, Math.min(mediaAspects[mediaIndex] / metrics[cellIndex].aspect, metrics[cellIndex].aspect / mediaAspects[mediaIndex]));
+              const next = mask | bit;
+              const cost = costs[mask] - Math.log(retention) * metrics[cellIndex].area / totalArea;
+              if (cost < costs[next] - 1e-12) {
+                costs[next] = cost;
+                orders[next] = [...orders[mask], mediaIndex];
+              }
+            }
+          }
+          const score = costs[size - 1];
+          if (!best || score < best.score - 1e-12) {
+            const assignment = orders[size - 1];
+            const retention = assignment.reduce((sum, mediaIndex, cellIndex) => {
+              const kept = Math.min(mediaAspects[mediaIndex] / metrics[cellIndex].aspect, metrics[cellIndex].aspect / mediaAspects[mediaIndex]);
+              return sum + kept * metrics[cellIndex].area / totalArea;
+            }, 0);
+            best = { template, templateIndex, assignment, score, retention };
+          }
+        });
+        return best;
+      }
+
+      function smartLayout() {
+        if (state.images.length < 2) return setStatus("请先添加至少 2 个图片或视频素材", true);
+        if (state.images.length > 9) return setStatus("智能排版最多支持 9 个素材；请先清除多余素材", true);
+        const mediaAspects = state.images.map(image => mediaWidth(image) / mediaHeight(image));
+        if (mediaAspects.some(aspect => !Number.isFinite(aspect) || aspect <= 0)) return setStatus("有素材尺寸尚未读取完成，请稍后重试", true);
+        const plan = smartTemplatePlan(mediaAspects);
+        if (!plan) return setStatus("暂时无法为这些素材生成智能排版", true);
+        stopVideoPreview();
+        state.customMode = false;
+        state.count = state.images.length;
+        state.templateIndex = plan.templateIndex;
+        state.slots = plan.assignment.map(mediaIndex => newSlot(state.images[mediaIndex].id));
+        state.selected = 0;
+        state.selectedStickerId = null;
+        renderModeControls();
+        renderCountButtons();
+        renderTemplates();
+        render();
+        pushHistory();
+        setStatus(`智能排版完成：${plan.template.name} · 已按素材横竖比例重新安排`);
       }
 
       function changeCount(count) {
@@ -1971,6 +2060,7 @@
       $("fitViewButton").addEventListener("click", fitCanvasView);
       $("templateModeButton").addEventListener("click", exitCustomMode);
       $("customModeButton").addEventListener("click", enterCustomMode);
+      $("smartLayoutButton").addEventListener("click", smartLayout);
       $("autoCustomButton").addEventListener("click", autoCustomLayout);
       $("splitVerticalButton").addEventListener("click", () => splitCustom("vertical"));
       $("splitHorizontalButton").addEventListener("click", () => splitCustom("horizontal"));
@@ -2163,7 +2253,15 @@
         if (clockTest !== "00:00|01:05|01:01:01") errors.push(`视频时间格式错误：${clockTest}`);
         const mp4MimeType = supportedMp4MimeType();
         if (mp4MimeType && (!mp4MimeType.includes("avc1") || !mp4MimeType.includes("mp4a.40.2"))) errors.push(`MP4 编码格式错误：${mp4MimeType}`);
-        return { pass: errors.length === 0, version: APP_VERSION, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, mp4FilenameTest, clockTest, mp4MimeType, errors };
+        const landscapePlan = smartTemplatePlan([16 / 9, 4 / 3], 1080, 1080);
+        const portraitPlan = smartTemplatePlan([9 / 16, 3 / 4], 1080, 1080);
+        const wideCanvasPlan = smartTemplatePlan([16 / 9, 4 / 3], 1920, 1080);
+        const twoWidePlan = smartTemplatePlan([16 / 9, 7 / 4], 1920, 1080);
+        if (landscapePlan?.template.name !== "上下") errors.push(`横图智能排版错误：${landscapePlan?.template.name || "无"}`);
+        if (portraitPlan?.template.name !== "左右") errors.push(`竖图智能排版错误：${portraitPlan?.template.name || "无"}`);
+        if (wideCanvasPlan?.template.name !== "左右") errors.push(`横画布智能排版错误：${wideCanvasPlan?.template.name || "无"}`);
+        if (twoWidePlan?.template.name !== "左右") errors.push(`双横图智能排版错误：${twoWidePlan?.template.name || "无"}`);
+        return { pass: errors.length === 0, version: APP_VERSION, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, mp4FilenameTest, clockTest, mp4MimeType, smartLayout: { landscapes: landscapePlan?.template.name, portraits: portraitPlan?.template.name, wideCanvas: wideCanvasPlan?.template.name, twoWide: twoWidePlan?.template.name }, errors };
       };
 
       renderImageList();
