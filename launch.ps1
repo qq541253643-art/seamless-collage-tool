@@ -6,18 +6,30 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $installDir = $PSScriptRoot
+$appPath = Join-Path $installDir 'app.html'
 $statusPath = Join-Path $installDir 'update-status.txt'
 $tempDir = Join-Path ([IO.Path]::GetTempPath()) ('seamless-collage-update-' + [Guid]::NewGuid().ToString('N'))
 $cacheBuster = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$opened = $false
 
 function Get-RemoteFile([string]$Name, [string]$Destination) {
   $encodedName = [Uri]::EscapeDataString($Name)
   $encodedBranch = [Uri]::EscapeDataString($Branch)
-  $uri = "https://api.github.com/repos/$Repository/contents/$encodedName`?ref=$encodedBranch&t=$cacheBuster"
-  $response = Invoke-RestMethod -UseBasicParsing -Headers @{ 'User-Agent' = 'Seamless-Collage-Updater' } -Uri $uri
-  if ([string]::IsNullOrWhiteSpace([string]$response.content)) { throw "GitHub returned no content for: $Name" }
-  $bytes = [Convert]::FromBase64String(([string]$response.content -replace '\s', ''))
-  [IO.File]::WriteAllBytes($Destination, $bytes)
+  $uri = "https://raw.githubusercontent.com/$Repository/$encodedBranch/$encodedName`?t=$cacheBuster"
+  Invoke-WebRequest -UseBasicParsing -TimeoutSec 8 -Headers @{ 'User-Agent' = 'Seamless-Collage-Updater' } -Uri $uri -OutFile $Destination
+  if (-not (Test-Path -LiteralPath $Destination) -or (Get-Item -LiteralPath $Destination).Length -eq 0) {
+    throw "GitHub returned no content for: $Name"
+  }
+}
+
+if (-not $NoOpen -and (Test-Path -LiteralPath $appPath)) {
+  try {
+    Start-Process -FilePath $appPath
+    $opened = $true
+  }
+  catch {
+    $opened = $false
+  }
 }
 
 try {
@@ -46,14 +58,33 @@ try {
     $updated.Add($name)
   }
 
-  $result = if ($updated.Count) { "Updated: $($updated -join ', ')" } else { 'Already up to date' }
+  $version = if ([string]::IsNullOrWhiteSpace([string]$manifest.version)) { 'latest version' } else { "v$($manifest.version)" }
+  $result = if ($updated.Count) {
+    "Updated to $version`: $($updated -join ', ')`r`nReopen the shortcut to use the updated files."
+  } else {
+    "Already up to date: $version"
+  }
   Set-Content -LiteralPath $statusPath -Encoding UTF8 -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`r`n$result"
 }
 catch {
-  Set-Content -LiteralPath $statusPath -Encoding UTF8 -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`r`nUpdate check failed: $($_.Exception.Message)`r`nThe installed version was opened instead."
+  $recovery = if ($opened) {
+    'The installed version was opened immediately. Check the network and reopen the shortcut later.'
+  } elseif (Test-Path -LiteralPath $appPath) {
+    'The installed file is available. Open app.html directly, then rerun the installer to repair the shortcut.'
+  } else {
+    'app.html is missing. Rerun the installer to repair this installation.'
+  }
+  Set-Content -LiteralPath $statusPath -Encoding UTF8 -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`r`nUpdate check failed: $($_.Exception.Message)`r`n$recovery"
 }
 finally {
   if (Test-Path -LiteralPath $tempDir) { Remove-Item -LiteralPath $tempDir -Recurse -Force }
 }
 
-if (-not $NoOpen) { Start-Process (Join-Path $installDir 'app.html') }
+if (-not $NoOpen -and -not $opened -and (Test-Path -LiteralPath $appPath)) {
+  try {
+    Start-Process -FilePath $appPath
+  }
+  catch {
+    Add-Content -LiteralPath $statusPath -Encoding UTF8 -Value "Open failed: $($_.Exception.Message)`r`nOpen this file directly: $appPath"
+  }
+}

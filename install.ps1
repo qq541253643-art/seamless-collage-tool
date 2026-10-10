@@ -14,11 +14,11 @@ $appName = -join [char[]](0x65E0, 0x7F1D, 0x62FC, 0x56FE, 0x5DE5, 0x5177)
 function Get-RemoteFile([string]$Name, [string]$Destination) {
   $encodedName = [Uri]::EscapeDataString($Name)
   $encodedBranch = [Uri]::EscapeDataString($Branch)
-  $uri = "https://api.github.com/repos/$Repository/contents/$encodedName`?ref=$encodedBranch&t=$cacheBuster"
-  $response = Invoke-RestMethod -UseBasicParsing -Headers @{ 'User-Agent' = 'Seamless-Collage-Installer' } -Uri $uri
-  if ([string]::IsNullOrWhiteSpace([string]$response.content)) { throw "GitHub returned no content for: $Name" }
-  $bytes = [Convert]::FromBase64String(([string]$response.content -replace '\s', ''))
-  [IO.File]::WriteAllBytes($Destination, $bytes)
+  $uri = "https://raw.githubusercontent.com/$Repository/$encodedBranch/$encodedName`?t=$cacheBuster"
+  Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 -Headers @{ 'User-Agent' = 'Seamless-Collage-Installer' } -Uri $uri -OutFile $Destination
+  if (-not (Test-Path -LiteralPath $Destination) -or (Get-Item -LiteralPath $Destination).Length -eq 0) {
+    throw "GitHub returned no content for: $Name"
+  }
 }
 
 try {
