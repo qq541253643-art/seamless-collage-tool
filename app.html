@@ -195,6 +195,11 @@
     .video-time { margin: 10px 0 6px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     .video-timeline { width: 100%; accent-color: var(--green); }
     .video-note { margin: 8px 0 0; color: #b6c9bd; font-size: 11px; }
+    .export-settings { margin: 0 0 14px; padding: 12px; border: 1px solid #3d654b; border-radius: 9px; background: #17251c; }
+    .enhance-toggle { display: flex; align-items: center; gap: 10px; min-height: 32px; cursor: pointer; }
+    .enhance-toggle input { width: 18px; height: 18px; margin: 0; accent-color: var(--green); }
+    .enhance-toggle strong { color: #c9f8da; }
+    .enhance-note { margin: 7px 0 0 28px; color: #b6c9bd; font-size: 11px; }
     .gap-settings { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
     .setting-head, .color-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .setting-head { margin-bottom: 9px; }
@@ -316,10 +321,10 @@
         <div class="canvas-shell"><canvas id="canvas" width="1080" height="1080"></canvas></div>
         <div id="exportProgress" class="export-progress" role="status" aria-live="polite" aria-atomic="true" hidden>
           <div class="export-progress-head">
-            <span id="exportProgressLabel" class="export-progress-label">正在准备 MP4…</span>
+            <span id="exportProgressLabel" class="export-progress-label">正在准备导出…</span>
             <button id="cancelExportButton" class="secondary danger cancel-export" type="button">取消</button>
           </div>
-          <progress id="exportProgressBar" max="100" value="0" aria-label="MP4 导出进度"></progress>
+          <progress id="exportProgressBar" max="100" value="0" aria-label="导出进度"></progress>
         </div>
         <div class="view-controls" aria-label="画布视图">
           <button id="viewOutButton" type="button" title="缩小画布视图" aria-label="缩小画布视图">−</button>
@@ -336,6 +341,13 @@
           <button id="customModeButton" class="layout-tab" type="button">自定义布局</button>
         </div>
         <p id="layoutSupportNote" class="layout-support-note"><strong>模板也能放视频：</strong>先选画布格子，再点左侧视频；模板已满时，新导入视频会替换当前格。</p>
+        <section class="export-settings" aria-label="导出画质设置">
+          <label class="enhance-toggle" for="hdEnhance">
+            <input id="hdEnhance" type="checkbox" checked>
+            <strong>高清增强</strong>
+          </label>
+          <p class="enhance-note">默认开启。GPU 增强被放大的图片；视频画面保持原样。</p>
+        </section>
         <div id="templatePanel" class="template-panel">
           <div class="smart-layout-control">
             <button id="smartLayoutButton" class="secondary smart-layout-button" type="button" aria-describedby="smartLayoutNote">智能排版</button>
@@ -439,7 +451,7 @@
     (() => {
       "use strict";
 
-      const APP_VERSION = "1.2.0";
+      const APP_VERSION = "1.3.0";
       const R = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
       const P = coords => {
         const points = coords.map(([x, y]) => ({ x, y }));
@@ -528,6 +540,12 @@
           return value && value.width >= 64 && value.width <= 4096 && value.height >= 64 && value.height <= 4096 ? value : null;
         } catch { return null; }
       })();
+      const savedHdEnhance = (() => {
+        try {
+          const value = localStorage.getItem("puzzle-hd-enhance-v1");
+          return value == null ? true : value === "true";
+        } catch { return true; }
+      })();
       const state = {
         width: savedSize?.width || 1080,
         height: savedSize?.height || 1080,
@@ -541,7 +559,8 @@
         slots: Array.from({ length: 3 }, () => null),
         selected: 0,
         stickers: [],
-        selectedStickerId: null
+        selectedStickerId: null,
+        hdEnhance: savedHdEnhance
       };
       let nextImageId = 1;
       let nextLeafId = 2;
@@ -604,6 +623,8 @@
       const isVideo = image => image?.kind === "video";
       const mediaWidth = image => isVideo(image) ? image.element.videoWidth : image.element.naturalWidth;
       const mediaHeight = image => isVideo(image) ? image.element.videoHeight : image.element.naturalHeight;
+      const elementWidth = (image, element) => isVideo(image) ? element.videoWidth : (element.naturalWidth || element.width);
+      const elementHeight = (image, element) => isVideo(image) ? element.videoHeight : (element.naturalHeight || element.height);
       const mediaReady = image => Boolean(image && mediaWidth(image) && mediaHeight(image) && (!isVideo(image) || image.element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA));
       const activeVideo = () => {
         const used = new Set(state.slots.filter(Boolean).map(slot => slot.imageId));
@@ -794,8 +815,8 @@
       function drawSlot(targetCtx, cell, slot, mediaOverrides = null) {
         const image = slot && imageById(slot.imageId);
         const mediaElement = image && (mediaOverrides?.get(image.id) || image.element);
-        const width = mediaElement && (isVideo(image) ? mediaElement.videoWidth : mediaElement.naturalWidth);
-        const height = mediaElement && (isVideo(image) ? mediaElement.videoHeight : mediaElement.naturalHeight);
+        const width = mediaElement && elementWidth(image, mediaElement);
+        const height = mediaElement && elementHeight(image, mediaElement);
         const ready = Boolean(width && height && (!isVideo(image) || mediaElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA));
         if (!image || !ready) {
           targetCtx.fillStyle = "#313a33";
@@ -1654,26 +1675,181 @@
         return formatExportFilename(now, exportSequence.number, extension);
       }
 
-      function exportImage() {
+      function enhancementDimensions(width, height, requiredScale, maxTextureSize = 8192, maxPixels = 16_000_000) {
+        if (!width || !height || requiredScale <= 1.05 || width > maxTextureSize || height > maxTextureSize) return null;
+        const limit = Math.min(maxTextureSize / width, maxTextureSize / height, Math.sqrt(maxPixels / (width * height)));
+        const scale = Math.min(2, requiredScale, limit);
+        if (scale <= 1.01) return null;
+        return { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)), scale };
+      }
+
+      function requiredImageScales(width, height) {
+        const result = new Map();
+        const cells = pixelCells(width, height);
+        state.slots.forEach((slot, index) => {
+          const image = slot && imageById(slot.imageId);
+          const cell = cells[index];
+          if (!image || !cell || isVideo(image) || !mediaReady(image)) return;
+          const quarterTurn = Math.abs(slot.rotation / 90) % 2 === 1;
+          const boundW = quarterTurn ? mediaHeight(image) : mediaWidth(image);
+          const boundH = quarterTurn ? mediaWidth(image) : mediaHeight(image);
+          const scale = Math.max(cell.width / boundW, cell.height / boundH) * slot.zoom;
+          result.set(image.id, Math.max(result.get(image.id) || 0, scale));
+        });
+        return result;
+      }
+
+      function compileShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          const message = gl.getShaderInfoLog(shader) || "GPU 着色器编译失败";
+          gl.deleteShader(shader);
+          throw new Error(message);
+        }
+        return shader;
+      }
+
+      async function enhanceImageOnGpu(image, requiredScale) {
+        const sourceWidth = mediaWidth(image);
+        const sourceHeight = mediaHeight(image);
+        const gpuCanvas = document.createElement("canvas");
+        const gl = gpuCanvas.getContext("webgl", { alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true });
+        if (!gl) return null;
+        const dimensions = enhancementDimensions(sourceWidth, sourceHeight, requiredScale, gl.getParameter(gl.MAX_TEXTURE_SIZE));
+        if (!dimensions) return null;
+        gpuCanvas.width = dimensions.width;
+        gpuCanvas.height = dimensions.height;
+        gl.viewport(0, 0, dimensions.width, dimensions.height);
+
+        const vertexShader = compileShader(gl, gl.VERTEX_SHADER, `
+          attribute vec2 aPosition;
+          varying vec2 vUv;
+          void main() {
+            vUv = aPosition * 0.5 + 0.5;
+            gl_Position = vec4(aPosition, 0.0, 1.0);
+          }
+        `);
+        const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, `
+          precision mediump float;
+          varying vec2 vUv;
+          uniform sampler2D uImage;
+          uniform vec2 uTexel;
+          uniform float uAmount;
+          float luma(vec3 color) { return dot(color, vec3(0.299, 0.587, 0.114)); }
+          void main() {
+            vec4 center = texture2D(uImage, vUv);
+            float edge = 4.0 * luma(center.rgb)
+              - luma(texture2D(uImage, vUv + vec2(uTexel.x, 0.0)).rgb)
+              - luma(texture2D(uImage, vUv - vec2(uTexel.x, 0.0)).rgb)
+              - luma(texture2D(uImage, vUv + vec2(0.0, uTexel.y)).rgb)
+              - luma(texture2D(uImage, vUv - vec2(0.0, uTexel.y)).rgb);
+            if (abs(edge) < 0.008) edge = 0.0;
+            gl_FragColor = vec4(clamp(center.rgb + edge * uAmount, 0.0, 1.0), center.a);
+          }
+        `);
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || "GPU 程序链接失败");
+        gl.useProgram(program);
+
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+        const position = gl.getAttribLocation(program, "aPosition");
+        gl.enableVertexAttribArray(position);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image.element);
+        gl.uniform1i(gl.getUniformLocation(program, "uImage"), 0);
+        gl.uniform2f(gl.getUniformLocation(program, "uTexel"), 1 / dimensions.width, 1 / dimensions.height);
+        gl.uniform1f(gl.getUniformLocation(program, "uAmount"), .32);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.finish();
+
+        let enhanced = gpuCanvas;
+        if (typeof createImageBitmap === "function") enhanced = await createImageBitmap(gpuCanvas);
+        gl.deleteTexture(texture);
+        gl.deleteBuffer(buffer);
+        gl.deleteProgram(program);
+        gl.deleteShader(vertexShader);
+        gl.deleteShader(fragmentShader);
+        return enhanced;
+      }
+
+      async function buildEnhancedMediaOverrides(width, height, job) {
+        const overrides = new Map();
+        const scales = state.hdEnhance ? requiredImageScales(width, height) : new Map();
+        const tasks = [...scales.entries()].filter(([, scale]) => scale > 1.05);
+        let fallbackCount = 0;
+        for (let index = 0; index < tasks.length; index++) {
+          if (job.canceled) throw new DOMException("已取消", "AbortError");
+          const [imageId, scale] = tasks[index];
+          const image = imageById(imageId);
+          setExportProgress(index, tasks.length, `GPU 高清增强 ${index + 1}/${tasks.length}…`);
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          try {
+            const enhanced = await enhanceImageOnGpu(image, scale);
+            if (enhanced) overrides.set(imageId, enhanced);
+            else fallbackCount++;
+          } catch {
+            fallbackCount++;
+          }
+        }
+        return { overrides, enhancedCount: overrides.size, fallbackCount, neededCount: tasks.length };
+      }
+
+      function closeEnhancedOverrides(overrides) {
+        overrides?.forEach(value => { if (typeof value?.close === "function") value.close(); });
+      }
+
+      function enhancementStatus(result) {
+        if (!state.hdEnhance) return "";
+        if (result.enhancedCount) return ` · GPU 高清增强 ${result.enhancedCount} 张`;
+        if (result.fallbackCount) return " · 已使用兼容缩放";
+        return " · 原图清晰度足够，无需增强";
+      }
+
+      async function exportImage() {
+        if (exportJob) return;
         if (state.slots.some(slot => !slot)) return setStatus("请先填满所有格子再导出", true);
-        const output = document.createElement("canvas");
-        output.width = state.width;
-        output.height = state.height;
-        const outputCtx = output.getContext("2d");
-        outputCtx.fillStyle = "#fff";
-        outputCtx.fillRect(0, 0, output.width, output.height);
-        paint(output, false);
-        output.toBlob(blob => {
-          if (!blob) return setStatus("导出失败，请降低画布尺寸后重试", true);
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
+        const job = { type: "jpg", canceled: false, cancel: () => { job.canceled = true; } };
+        exportJob = job;
+        setExportBusy(true);
+        setExportProgress(0, 1, "正在准备 JPG…");
+        let enhancement = null;
+        try {
+          enhancement = await buildEnhancedMediaOverrides(state.width, state.height, job);
+          if (job.canceled) throw new DOMException("已取消", "AbortError");
+          const output = document.createElement("canvas");
+          output.width = state.width;
+          output.height = state.height;
+          paint(output, false, enhancement.overrides);
+          setExportProgress(1, 1, "正在生成 JPG…");
+          const blob = await new Promise(resolve => output.toBlob(resolve, "image/jpeg", .96));
+          if (job.canceled) throw new DOMException("已取消", "AbortError");
+          if (!blob) throw new Error("请降低画布尺寸后重试");
           const filename = nextExportFilename("jpg");
-          link.download = filename;
-          link.click();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-          setStatus(`已导出 ${filename}`);
-        }, "image/jpeg", .94);
+          downloadBlob(blob, filename);
+          setStatus(`已导出 ${filename}${enhancementStatus(enhancement)}`);
+        } catch (error) {
+          if (job.canceled || error?.name === "AbortError") setStatus("已取消 JPG 导出");
+          else setStatus(`JPG 导出失败：${error.message || error}`, true);
+        } finally {
+          closeEnhancedOverrides(enhancement?.overrides);
+          exportJob = null;
+          setExportBusy(false);
+        }
       }
 
       function supportedMp4MimeType() {
@@ -1710,11 +1886,13 @@
             if (element !== $("cancelExportButton")) element.disabled = true;
           });
           $("cancelExportButton").disabled = false;
-          $("mp4Button").setAttribute("aria-busy", "true");
+          const activeButton = exportJob?.type === "jpg" ? $("jpgButton") : $("mp4Button");
+          activeButton.setAttribute("aria-busy", "true");
           return;
         }
         exportDisabledStates?.forEach((disabled, element) => { element.disabled = disabled; });
         exportDisabledStates = null;
+        $("jpgButton").removeAttribute("aria-busy");
         $("mp4Button").removeAttribute("aria-busy");
         renderModeControls();
         updateControls();
@@ -1742,6 +1920,7 @@
         const exportVideo = document.createElement("video");
         let finishPlayback = null;
         const job = {
+          type: "mp4",
           canceled: false,
           cancel: () => {
             if (job.canceled) return;
@@ -1760,6 +1939,7 @@
         let audioContext = null;
         let animationFrame = 0;
         let renderedFrames = 0;
+        let enhancement = null;
         exportVideo.preload = "auto";
         exportVideo.playsInline = true;
         exportVideo.src = image.url;
@@ -1774,10 +1954,14 @@
           const duration = exportVideo.duration;
           if (!Number.isFinite(duration) || duration <= 0) throw new Error("视频时长无效");
 
+          enhancement = await buildEnhancedMediaOverrides(state.width, state.height, job);
+          if (job.canceled) throw new DOMException("已取消", "AbortError");
+          setExportProgress(0, duration, "正在准备 MP4 编码…");
           const output = document.createElement("canvas");
           output.width = state.width + state.width % 2;
           output.height = state.height + state.height % 2;
-          const overrides = new Map([[image.id, exportVideo]]);
+          const overrides = new Map(enhancement.overrides);
+          overrides.set(image.id, exportVideo);
           paint(output, false, overrides);
           outputStream = output.captureStream(30);
           const videoTrack = outputStream.getVideoTracks()[0];
@@ -1837,8 +2021,8 @@
             const filename = nextExportFilename("mp4");
             downloadBlob(blob, filename);
             const renderedFps = renderedFrames / duration;
-            if (renderedFps < 24) setStatus(`已导出 ${filename}，但实时绘制约 ${Math.round(renderedFps)}fps；建议关闭其他程序或降低画布尺寸`, true);
-            else setStatus(`已导出 ${filename}`);
+            if (renderedFps < 24) setStatus(`已导出 ${filename}${enhancementStatus(enhancement)}，但实时绘制约 ${Math.round(renderedFps)}fps；建议关闭其他程序或降低画布尺寸`, true);
+            else setStatus(`已导出 ${filename}${enhancementStatus(enhancement)}`);
           } else {
             setStatus("已取消 MP4 导出");
           }
@@ -1853,6 +2037,7 @@
           exportVideo.load();
           outputStream?.getTracks().forEach(track => track.stop());
           if (audioContext && audioContext.state !== "closed") await audioContext.close().catch(() => {});
+          closeEnhancedOverrides(enhancement?.overrides);
           exportJob = null;
           setExportBusy(false);
           paintPreviewFrame();
@@ -2091,6 +2276,11 @@
       $("gapNumber").addEventListener("change", event => setGap(event.target.value, true));
       $("gapColor").addEventListener("input", event => { state.background = event.target.value; render(); });
       $("gapColor").addEventListener("change", () => { pushHistory(); setStatus("间距与露底颜色已更新"); });
+      $("hdEnhance").addEventListener("change", event => {
+        state.hdEnhance = event.target.checked;
+        try { localStorage.setItem("puzzle-hd-enhance-v1", String(state.hdEnhance)); } catch {}
+        setStatus(state.hdEnhance ? "高清增强已开启；导出时使用 GPU 处理被放大的图片" : "高清增强已关闭");
+      });
       document.querySelectorAll("[data-sticker]").forEach(button => button.addEventListener("click", () => addSticker(button.dataset.sticker)));
       $("stickerColor").addEventListener("input", event => mutateSticker(sticker => sticker.color = event.target.value));
       $("stickerColor").addEventListener("change", () => mutateSticker(() => {}, "贴图颜色已更新", true));
@@ -2261,10 +2451,17 @@
         if (portraitPlan?.template.name !== "左右") errors.push(`竖图智能排版错误：${portraitPlan?.template.name || "无"}`);
         if (wideCanvasPlan?.template.name !== "左右") errors.push(`横画布智能排版错误：${wideCanvasPlan?.template.name || "无"}`);
         if (twoWidePlan?.template.name !== "左右") errors.push(`双横图智能排版错误：${twoWidePlan?.template.name || "无"}`);
-        return { pass: errors.length === 0, version: APP_VERSION, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, mp4FilenameTest, clockTest, mp4MimeType, smartLayout: { landscapes: landscapePlan?.template.name, portraits: portraitPlan?.template.name, wideCanvas: wideCanvasPlan?.template.name, twoWide: twoWidePlan?.template.name }, errors };
+        const enhancement2x = enhancementDimensions(800, 600, 2.5);
+        const enhancementEnough = enhancementDimensions(1600, 1200, 1);
+        const enhancementCapped = enhancementDimensions(4000, 3000, 2);
+        if (enhancement2x?.width !== 1600 || enhancement2x?.height !== 1200) errors.push("高清增强 2 倍尺寸错误");
+        if (enhancementEnough !== null) errors.push("无需放大时不应触发高清增强");
+        if (!enhancementCapped || enhancementCapped.width * enhancementCapped.height > 16_000_000) errors.push("高清增强像素上限错误");
+        return { pass: errors.length === 0, version: APP_VERSION, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, mp4FilenameTest, clockTest, mp4MimeType, smartLayout: { landscapes: landscapePlan?.template.name, portraits: portraitPlan?.template.name, wideCanvas: wideCanvasPlan?.template.name, twoWide: twoWidePlan?.template.name }, enhancement: { twoX: enhancement2x, enough: enhancementEnough, capped: enhancementCapped }, errors };
       };
 
       renderImageList();
+      $("hdEnhance").checked = state.hdEnhance;
       syncSizeInputs();
       syncGapInputs();
       renderModeControls();
