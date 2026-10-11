@@ -346,7 +346,7 @@
             <input id="hdEnhance" type="checkbox" checked>
             <strong>高清增强</strong>
           </label>
-          <p class="enhance-note">默认开启。GPU 增强被放大的图片；视频画面保持原样。</p>
+          <p class="enhance-note">默认开启。GPU 优化所有静态图片；视频画面保持原样。</p>
         </section>
         <div id="templatePanel" class="template-panel">
           <div class="smart-layout-control">
@@ -451,7 +451,7 @@
     (() => {
       "use strict";
 
-      const APP_VERSION = "1.4.0";
+      const APP_VERSION = "1.4.1";
       const R = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
       const P = coords => {
         const points = coords.map(([x, y]) => ({ x, y }));
@@ -1747,10 +1747,10 @@
       }
 
       function enhancementDimensions(width, height, requiredScale, maxTextureSize = 8192, maxPixels = 16_000_000) {
-        if (!width || !height || requiredScale <= 1.05 || width > maxTextureSize || height > maxTextureSize) return null;
+        if (!width || !height || width > maxTextureSize || height > maxTextureSize) return null;
         const limit = Math.min(maxTextureSize / width, maxTextureSize / height, Math.sqrt(maxPixels / (width * height)));
-        const scale = Math.min(2, requiredScale, limit);
-        if (scale <= 1.01) return null;
+        if (limit < 1) return null;
+        const scale = Math.min(2, Math.max(1, requiredScale), limit);
         return { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)), scale };
       }
 
@@ -1843,8 +1843,8 @@
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image.element);
         gl.uniform1i(gl.getUniformLocation(program, "uImage"), 0);
-        gl.uniform2f(gl.getUniformLocation(program, "uTexel"), 1 / dimensions.width, 1 / dimensions.height);
-        gl.uniform1f(gl.getUniformLocation(program, "uAmount"), .32);
+        gl.uniform2f(gl.getUniformLocation(program, "uTexel"), 1 / sourceWidth, 1 / sourceHeight);
+        gl.uniform1f(gl.getUniformLocation(program, "uAmount"), dimensions.scale > 1.05 ? .38 : .46);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
         gl.finish();
 
@@ -1861,7 +1861,7 @@
       async function buildEnhancedMediaOverrides(width, height, job) {
         const overrides = new Map();
         const scales = state.hdEnhance ? requiredImageScales(width, height) : new Map();
-        const tasks = [...scales.entries()].filter(([, scale]) => scale > 1.05);
+        const tasks = [...scales.entries()];
         let fallbackCount = 0;
         for (let index = 0; index < tasks.length; index++) {
           if (job.canceled) throw new DOMException("已取消", "AbortError");
@@ -1888,7 +1888,7 @@
         if (!state.hdEnhance) return "";
         if (result.enhancedCount) return ` · GPU 高清增强 ${result.enhancedCount} 张`;
         if (result.fallbackCount) return " · 已使用兼容缩放";
-        return " · 原图清晰度足够，无需增强";
+        return " · 没有可处理的静态图片";
       }
 
       async function exportImage() {
@@ -2350,7 +2350,7 @@
       $("hdEnhance").addEventListener("change", event => {
         state.hdEnhance = event.target.checked;
         try { localStorage.setItem("puzzle-hd-enhance-v1", String(state.hdEnhance)); } catch {}
-        setStatus(state.hdEnhance ? "高清增强已开启；导出时使用 GPU 处理被放大的图片" : "高清增强已关闭");
+        setStatus(state.hdEnhance ? "高清增强已开启；导出时使用 GPU 优化所有静态图片" : "高清增强已关闭");
       });
       document.querySelectorAll("[data-sticker]").forEach(button => button.addEventListener("click", () => addSticker(button.dataset.sticker)));
       $("stickerColor").addEventListener("input", event => mutateSticker(sticker => sticker.color = event.target.value));
@@ -2552,7 +2552,7 @@
         const enhancementEnough = enhancementDimensions(1600, 1200, 1);
         const enhancementCapped = enhancementDimensions(4000, 3000, 2);
         if (enhancement2x?.width !== 1600 || enhancement2x?.height !== 1200) errors.push("高清增强 2 倍尺寸错误");
-        if (enhancementEnough !== null) errors.push("无需放大时不应触发高清增强");
+        if (enhancementEnough?.width !== 1600 || enhancementEnough?.height !== 1200 || enhancementEnough?.scale !== 1) errors.push("原尺寸清晰优化错误");
         if (!enhancementCapped || enhancementCapped.width * enhancementCapped.height > 16_000_000) errors.push("高清增强像素上限错误");
         return { pass: errors.length === 0, version: APP_VERSION, templates: checked, customCells: custom.cells.length, customDividers: custom.dividers.length, diagonalCells: diagonal.cells.length, yCells: yLayout.cells.length, stickerTypes: stickerTypes.length, stickerPixels, filenameTest, mp4FilenameTest, clockTest, mp4MimeType, smartLayout: { landscapes: landscapePlan?.template.name, portraits: portraitPlan?.template.name, wideCanvas: wideCanvasPlan?.template.name, twoWide: twoWidePlan?.template.name, customLandscapes: customLandscapePlan?.template.name, customPortraits: customPortraitPlan?.template.name, customDivider: partitionLayout?.dividers[0]?.direction, customPlanCoverage }, enhancement: { twoX: enhancement2x, enough: enhancementEnough, capped: enhancementCapped }, errors };
       };
