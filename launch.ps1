@@ -11,6 +11,22 @@ $statusPath = Join-Path $installDir 'update-status.txt'
 $tempDir = Join-Path ([IO.Path]::GetTempPath()) ('seamless-collage-update-' + [Guid]::NewGuid().ToString('N'))
 $cacheBuster = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $opened = $false
+$appName = -join [char[]](0x65E0, 0x7F1D, 0x62FC, 0x56FE, 0x5DE5, 0x5177)
+$desktopDir = [Environment]::GetFolderPath('Desktop')
+$englishShortcutPath = Join-Path $desktopDir 'Seamless Collage Tool.lnk'
+$localizedShortcutPath = Join-Path $desktopDir ($appName + '.lnk')
+$shortcutMigration = ''
+
+try {
+  if (Test-Path -LiteralPath $englishShortcutPath) {
+    if (Test-Path -LiteralPath $localizedShortcutPath) { Remove-Item -LiteralPath $localizedShortcutPath -Force }
+    Move-Item -LiteralPath $englishShortcutPath -Destination $localizedShortcutPath
+    $shortcutMigration = 'Desktop shortcut renamed successfully.'
+  }
+}
+catch {
+  $shortcutMigration = "Desktop shortcut rename failed: $($_.Exception.Message) Rerun the installer to repair it."
+}
 
 function Get-RepositorySnapshot {
   $encodedBranch = [Uri]::EscapeDataString($Branch)
@@ -69,7 +85,9 @@ try {
   } else {
     "Already up to date: $version"
   }
-  Set-Content -LiteralPath $statusPath -Encoding UTF8 -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`r`n$result"
+  $status = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`r`n$result"
+  if ($shortcutMigration) { $status += "`r`n$shortcutMigration" }
+  Set-Content -LiteralPath $statusPath -Encoding UTF8 -Value $status
 }
 catch {
   $recovery = if ($opened) {
@@ -79,7 +97,9 @@ catch {
   } else {
     'app.html is missing. Rerun the installer to repair this installation.'
   }
-  Set-Content -LiteralPath $statusPath -Encoding UTF8 -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`r`nUpdate check failed: $($_.Exception.Message)`r`n$recovery"
+  $status = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`r`nUpdate check failed: $($_.Exception.Message)`r`n$recovery"
+  if ($shortcutMigration) { $status += "`r`n$shortcutMigration" }
+  Set-Content -LiteralPath $statusPath -Encoding UTF8 -Value $status
 }
 finally {
   if (Test-Path -LiteralPath $tempDir) { Remove-Item -LiteralPath $tempDir -Recurse -Force }

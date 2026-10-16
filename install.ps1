@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $cacheBuster = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $tempDir = Join-Path ([IO.Path]::GetTempPath()) ('seamless-collage-' + [Guid]::NewGuid().ToString('N'))
+$appName = -join [char[]](0x65E0, 0x7F1D, 0x62FC, 0x56FE, 0x5DE5, 0x5177)
 
 function Get-RepositorySnapshot {
   $encodedBranch = [Uri]::EscapeDataString($Branch)
@@ -48,17 +49,20 @@ try {
     Move-Item -LiteralPath $sourcePath -Destination (Join-Path $InstallDir $name) -Force
   }
 
-  $shortcutPath = Join-Path $DesktopDir 'Seamless Collage Tool.lnk'
+  $temporaryShortcutPath = Join-Path $DesktopDir 'Seamless Collage Tool.lnk'
+  $shortcutPath = Join-Path $DesktopDir ($appName + '.lnk')
   $launcherPath = Join-Path $InstallDir 'launch.ps1'
   $launcherCommand = "& '" + $launcherPath.Replace("'", "''") + "'"
   $encodedLauncherCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($launcherCommand))
   $shell = New-Object -ComObject WScript.Shell
-  $shortcut = $shell.CreateShortcut($shortcutPath)
+  $shortcut = $shell.CreateShortcut($temporaryShortcutPath)
   $shortcut.TargetPath = (Get-Process -Id $PID).Path
   $shortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ' + $encodedLauncherCommand
   $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,220"
   $shortcut.Description = 'Open Seamless Collage Tool and check for updates'
   $shortcut.Save()
+  if (Test-Path -LiteralPath $shortcutPath) { Remove-Item -LiteralPath $shortcutPath -Force }
+  Move-Item -LiteralPath $temporaryShortcutPath -Destination $shortcutPath
 
   Write-Host "Installed: $InstallDir" -ForegroundColor Green
   Write-Host "Desktop shortcut: $shortcutPath"
