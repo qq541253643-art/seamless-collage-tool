@@ -380,9 +380,9 @@
         <section class="gap-settings" aria-label="拼图间距设置">
           <div class="setting-head">
             <label class="setting-label" for="gapRange">图片间距</label>
-            <span class="gap-value"><input id="gapNumber" class="gap-number" type="number" min="0" max="100" value="0" aria-label="图片间距像素">px</span>
+            <span class="gap-value"><input id="gapNumber" class="gap-number" type="number" min="0" max="100" value="3" aria-label="图片间距像素">px</span>
           </div>
-          <input id="gapRange" type="range" min="0" max="100" step="1" value="0" aria-label="图片间距">
+          <input id="gapRange" type="range" min="0" max="100" step="1" value="3" aria-label="图片间距">
           <div class="color-row">
             <label class="setting-label" for="gapColor">间距与露底颜色</label>
             <input id="gapColor" class="color-input" type="color" value="#ffffff" aria-label="间距与露底颜色">
@@ -451,7 +451,7 @@
     (() => {
       "use strict";
 
-      const APP_VERSION = "1.4.3";
+      const APP_VERSION = "1.4.4";
       const R = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
       const P = coords => {
         const points = coords.map(([x, y]) => ({ x, y }));
@@ -549,7 +549,7 @@
       const state = {
         width: savedSize?.width || 1080,
         height: savedSize?.height || 1080,
-        gap: 0,
+        gap: 3,
         background: "#ffffff",
         count: 3,
         templateIndex: 0,
