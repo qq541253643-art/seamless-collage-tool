@@ -1,8 +1,8 @@
 # 无缝拼图工具
 
-绿色、免安装的 Windows 拼图工具。可以将多张图片和 1 段视频放入模板或自定义格子，导出 JPG 或带原声的 MP4。所有编辑与导出均在本机浏览器完成。
+可在 Windows 和 Apple Silicon Mac 上本地运行的拼图工具。可以将多张图片和 1 段视频放入模板或自定义格子，导出 JPG 或带原声的 MP4。所有编辑与导出均在本机浏览器完成。
 
-当前版本：**v1.4.4**
+当前版本：**v1.5.0**
 
 ## 高清增强
 
@@ -27,7 +27,7 @@
 - 导出按视频时长实时进行，期间会锁定编辑并显示进度，可随时取消。
 - 建议使用最新版 Edge 或 Chrome，并保持显卡驱动为新版本。
 
-## 一条命令安装
+## Windows 一键安装
 
 在 Windows PowerShell 中粘贴并回车：
 
@@ -37,9 +37,21 @@ irm https://raw.githubusercontent.com/qq541253643-art/seamless-collage-tool/main
 
 程序会安装到当前用户的“文档\无缝拼图工具”，并在桌面创建“无缝拼图工具”快捷方式。中文和英文 Windows 均可正常安装和启动。以后从桌面快捷方式打开即可。
 
+## macOS Apple Silicon 安装
+
+在“终端”中执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/qq541253643-art/seamless-collage-tool/main/install-macos.sh | bash
+```
+
+程序会安装到当前用户的 `~/Applications` 文件夹，并在桌面创建“无缝拼图工具”快捷方式。支持 Apple Silicon Mac；启动时优先使用已安装的 Chrome 或 Edge，未安装时使用默认浏览器。建议使用 macOS 11 或更高版本。
+
+如果首次打开时 macOS 提示安全阻止，请右键应用选择“打开”。
+
 ## 更新
 
-从桌面快捷方式打开时，程序会先打开本地版本，再读取仓库的 `manifest.json`，只下载内容发生变化的文件；更新后的文件在下次打开时生效。网络不可用时不会影响本地工具启动，检查结果保存在安装目录的 `update-status.txt`。
+从桌面快捷方式打开时，程序会先打开本地版本，再读取仓库的 `manifest.json`。Windows 只下载内容发生变化的文件；macOS 在发现新版本后下载更新包。更新后的文件在下次打开时生效。网络不可用时不会影响本地工具启动，检查结果保存在安装目录的 `update-status.txt`。
 
 如果桌面快捷方式损坏或点击后没有反应，重新执行上方的一条命令安装即可修复；已安装的程序目录仍会沿用。
 
@@ -47,4 +59,4 @@ irm https://raw.githubusercontent.com/qq541253643-art/seamless-collage-tool/main
 
 下载仓库后双击“打开拼图工具.cmd”，或直接打开 `app.html`。
 
-支持 Windows 10/11，建议使用新版 Edge 或 Chrome。
+支持 Windows 10/11、Apple Silicon Mac（macOS 11 及以上）。建议使用新版 Edge、Chrome 或 Safari。

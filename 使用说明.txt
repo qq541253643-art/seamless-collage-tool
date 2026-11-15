@@ -1,6 +1,11 @@
-无缝拼图工具 v1.4.4
+无缝拼图工具 v1.5.0
 
 双击桌面的“无缝拼图工具”快捷方式即可使用，也可以直接双击 app.html。中文和英文 Windows 均可正常创建该快捷方式。
+
+macOS（Apple Silicon）安装：在“终端”中执行
+curl -fsSL https://raw.githubusercontent.com/qq541253643-art/seamless-collage-tool/main/install-macos.sh | bash
+程序会安装到当前用户的 Applications 文件夹（~/Applications），并生成桌面快捷方式，启动时优先使用 Chrome 或 Edge，未安装时使用默认浏览器。
+如果首次打开时 macOS 提示安全阻止，请右键应用选择“打开”。
 
 使用方法：
 1. 添加 2～9 个素材，可以是多张图片 + 1 段视频。建议使用 MP4（H.264/AAC）源视频。

@@ -451,7 +451,7 @@
     (() => {
       "use strict";
 
-      const APP_VERSION = "1.4.4";
+      const APP_VERSION = "1.5.0";
       const R = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
       const P = coords => {
         const points = coords.map(([x, y]) => ({ x, y }));
@@ -1927,12 +1927,14 @@
         if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") return "";
         const candidates = [
           "video/mp4;codecs=avc1,mp4a.40.2",
+          "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
           "video/mp4;codecs=avc1.640033,mp4a.40.2",
           "video/mp4;codecs=avc1.4d0033,mp4a.40.2",
           "video/mp4;codecs=avc1.42e033,mp4a.40.2",
           "video/mp4;codecs=avc1.64002a,mp4a.40.2",
           "video/mp4;codecs=avc1.4d002a,mp4a.40.2",
-          "video/mp4;codecs=avc1.42e02a,mp4a.40.2"
+          "video/mp4;codecs=avc1.42e02a,mp4a.40.2",
+          "video/mp4"
         ];
         return candidates.find(type => MediaRecorder.isTypeSupported(type)) || "";
       }
